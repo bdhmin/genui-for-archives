@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   SandpackProvider,
   SandpackPreview,
@@ -30,7 +30,8 @@ function stripExports(code: string): string {
 }
 
 // Wrapper code that sets up the widget with data and change handling
-function createWrapperCode(componentCode: string, data: unknown[]): string {
+// Now accepts data updates via postMessage to avoid remounting
+function createWrapperCode(componentCode: string, initialData: unknown[]): string {
   const cleanedCode = stripExports(componentCode);
   
   return `
@@ -39,12 +40,23 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 // Generated Widget Component
 ${cleanedCode}
 
-// Data passed from parent
-const initialData = ${JSON.stringify(data)};
+// Initial data passed from parent (used only for first render)
+const initialData = ${JSON.stringify(initialData)};
 
 // Wrapper that handles data state and communication
 function App() {
   const [data, setData] = React.useState(initialData);
+
+  // Listen for data updates from parent (avoids remounting the widget)
+  React.useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'WIDGET_DATA_UPDATE') {
+        setData(event.data.data);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   const handleDataChange = React.useCallback((newData) => {
     setData(newData);
@@ -76,10 +88,55 @@ export default function WidgetRenderer({
 }: WidgetRendererProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [key, setKey] = useState(0); // For forcing re-render
+  const [forceRefreshCount, setForceRefreshCount] = useState(0);
+  const dataItemsRef = useRef(dataItems);
+  const hasInitializedRef = useRef(false);
+  const prevComponentCodeRef = useRef(componentCode);
 
   // Extract just the data values
-  const dataArray = dataItems.map((item) => item.data);
+  const dataArray = useMemo(() => dataItems.map((item) => item.data), [dataItems]);
+
+  // Store the initial data for the first render only
+  const initialDataRef = useRef(dataArray);
+  
+  // Update ref when dataItems change (for message handler)
+  useEffect(() => {
+    dataItemsRef.current = dataItems;
+  }, [dataItems]);
+
+  // When component code changes, update initial data ref so remount uses fresh data
+  useEffect(() => {
+    if (prevComponentCodeRef.current !== componentCode) {
+      initialDataRef.current = dataArray;
+      hasInitializedRef.current = false;
+      prevComponentCodeRef.current = componentCode;
+    }
+  }, [componentCode, dataArray]);
+
+  // Create a stable key based on widgetId and componentCode (not data)
+  // This prevents remounting when only data changes
+  const stableKey = useMemo(() => {
+    const codeHash = componentCode ? componentCode.length.toString(36) + componentCode.slice(0, 100) : '';
+    return `${widgetId}-${codeHash}-${forceRefreshCount}`;
+  }, [widgetId, componentCode, forceRefreshCount]);
+
+  // Send data updates to the sandboxed widget via postMessage (avoids remounting)
+  useEffect(() => {
+    // Skip initial render - the widget already has initialData
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      return;
+    }
+    
+    // Send updated data to the iframe
+    const iframe = document.querySelector('.sp-preview-iframe') as HTMLIFrameElement | null;
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({
+        type: 'WIDGET_DATA_UPDATE',
+        data: dataArray,
+      }, '*');
+    }
+  }, [dataArray]);
 
   // Handle messages from the sandboxed widget
   useEffect(() => {
@@ -87,8 +144,9 @@ export default function WidgetRenderer({
       if (event.data?.type === 'WIDGET_DATA_CHANGE' && onDataChange) {
         const newDataArray = event.data.data as Record<string, unknown>[];
         // Map back to WidgetData format, preserving IDs where possible
+        const currentDataItems = dataItemsRef.current;
         const updatedDataItems: WidgetData[] = newDataArray.map((data, index) => ({
-          id: dataItems[index]?.id || `new-${index}`,
+          id: currentDataItems[index]?.id || `new-${index}`,
           data,
         }));
         onDataChange(updatedDataItems);
@@ -97,13 +155,19 @@ export default function WidgetRenderer({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [dataItems, onDataChange]);
+  }, [onDataChange]);
 
-  // Create the wrapper code
-  const wrapperCode = createWrapperCode(componentCode, dataArray);
+  // Create the wrapper code with initial data only
+  const wrapperCode = useMemo(
+    () => createWrapperCode(componentCode, initialDataRef.current),
+    [componentCode]
+  );
 
   const handleRefresh = useCallback(() => {
-    setKey((k) => k + 1);
+    // Reset initialization so we use fresh data
+    hasInitializedRef.current = false;
+    initialDataRef.current = dataItemsRef.current.map((item) => item.data);
+    setForceRefreshCount((c) => c + 1);
     setError(null);
   }, []);
 
@@ -146,7 +210,7 @@ export default function WidgetRenderer({
       )}
 
       <SandpackProvider
-        key={key}
+        key={stableKey}
         template="react"
         theme="dark"
         files={{

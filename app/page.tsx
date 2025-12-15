@@ -24,6 +24,8 @@ import {
   Loader2,
   AlertCircle,
   Square,
+  Plus,
+  GripVertical,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -135,6 +137,19 @@ export default function ChatPage() {
     WidgetDataItem[]
   >([]);
   const [isLoadingWidgetDetail, setIsLoadingWidgetDetail] = useState(false);
+  // Drag-and-drop state
+  const [draggingConversationId, setDraggingConversationId] = useState<
+    string | null
+  >(null);
+  const [dropTargetWidgetId, setDropTargetWidgetId] = useState<string | null>(
+    null
+  );
+  const [isDropTargetNewWidget, setIsDropTargetNewWidget] = useState(false);
+  const [processingDropConversationId, setProcessingDropConversationId] =
+    useState<string | null>(null);
+  const [processingDropWidgetId, setProcessingDropWidgetId] = useState<
+    string | null
+  >(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -702,6 +717,225 @@ export default function ChatPage() {
     setShowConversationTags(false);
   };
 
+  // Drag-and-drop handlers
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, conversationId: string) => {
+      e.dataTransfer.setData('text/plain', conversationId);
+      e.dataTransfer.effectAllowed = 'copy';
+      setDraggingConversationId(conversationId);
+      // Open dashboard if not already open
+      if (!isDashboardOpen) {
+        setIsDashboardOpen(true);
+      }
+    },
+    [isDashboardOpen]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setDraggingConversationId(null);
+    setDropTargetWidgetId(null);
+    setIsDropTargetNewWidget(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleWidgetDragEnter = useCallback(
+    (e: React.DragEvent, widgetId: string) => {
+      e.preventDefault();
+      setDropTargetWidgetId(widgetId);
+      setIsDropTargetNewWidget(false);
+    },
+    []
+  );
+
+  const handleWidgetDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    // Only clear if leaving the widget entirely (not entering a child)
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (!e.currentTarget.contains(relatedTarget)) {
+      setDropTargetWidgetId(null);
+    }
+  }, []);
+
+  const handleNewWidgetDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDropTargetNewWidget(true);
+    setDropTargetWidgetId(null);
+  }, []);
+
+  const handleNewWidgetDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (!e.currentTarget.contains(relatedTarget)) {
+      setIsDropTargetNewWidget(false);
+    }
+  }, []);
+
+  const handleDropOnWidget = useCallback(
+    async (e: React.DragEvent, widgetId: string) => {
+      e.preventDefault();
+      const conversationId = e.dataTransfer.getData('text/plain');
+      if (!conversationId) return;
+
+      setDraggingConversationId(null);
+      setDropTargetWidgetId(null);
+      setProcessingDropConversationId(conversationId);
+      setProcessingDropWidgetId(widgetId);
+
+      try {
+        const res = await fetch('/api/widgets/add-conversation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ widgetId, conversationId }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to add conversation to widget');
+        }
+
+        // Wait for edge function to process (schema evolution + data extraction)
+        // Then poll for updates
+        const pollForUpdates = async (attempts = 0): Promise<void> => {
+          if (attempts >= 10) {
+            console.log('[DropOnWidget] Max polling attempts reached');
+            return;
+          }
+
+          // Wait progressively longer between attempts
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1500 + attempts * 500)
+          );
+
+          // Refresh widget detail
+          if (selectedWidgetId === widgetId) {
+            await fetchWidgetDetail(widgetId);
+          }
+
+          // Check if data was added by fetching widget
+          const checkRes = await fetch(`/api/widgets/${widgetId}`);
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            const dataItems = checkData.dataItems || [];
+            const hasConversationData = dataItems.some(
+              (item: { sourceConversationId?: string }) =>
+                item.sourceConversationId === conversationId
+            );
+
+            if (!hasConversationData && attempts < 9) {
+              // Keep polling if data not yet available
+              console.log(
+                `[DropOnWidget] Data not ready, polling attempt ${attempts + 1}`
+              );
+              return pollForUpdates(attempts + 1);
+            }
+          }
+        };
+
+        // Start polling
+        await pollForUpdates();
+
+        // Final refresh of widgets list
+        await fetchWidgets();
+
+        // Final refresh of widget detail if selected
+        if (selectedWidgetId === widgetId) {
+          await fetchWidgetDetail(widgetId);
+        }
+      } catch (err) {
+        console.error('Failed to add conversation to widget:', err);
+        setError(
+          err instanceof Error ? err.message : 'Failed to add conversation'
+        );
+      } finally {
+        setProcessingDropConversationId(null);
+        setProcessingDropWidgetId(null);
+      }
+    },
+    [fetchWidgets, fetchWidgetDetail, selectedWidgetId]
+  );
+
+  const handleDropOnNewWidget = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      const conversationId = e.dataTransfer.getData('text/plain');
+      if (!conversationId) return;
+
+      setDraggingConversationId(null);
+      setIsDropTargetNewWidget(false);
+      setProcessingDropConversationId(conversationId);
+
+      try {
+        const res = await fetch('/api/widgets/add-conversation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId }), // No widgetId = create new widget
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(
+            data.error || 'Failed to create widget from conversation'
+          );
+        }
+
+        const result = await res.json();
+
+        // Poll for widget creation to complete
+        const pollForWidget = async (attempts = 0): Promise<void> => {
+          if (attempts >= 15) {
+            console.log('[DropOnNewWidget] Max polling attempts reached');
+            return;
+          }
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2000 + attempts * 500)
+          );
+
+          // Refresh widgets list
+          await fetchWidgets();
+
+          // If we got a widgetId from the response, check if it's ready
+          if (result.widgetId) {
+            const checkRes = await fetch(`/api/widgets/${result.widgetId}`);
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              if (checkData.widget?.status === 'active') {
+                console.log('[DropOnNewWidget] Widget is ready');
+                return;
+              }
+            }
+          }
+
+          // Keep polling
+          console.log(
+            `[DropOnNewWidget] Widget not ready, polling attempt ${
+              attempts + 1
+            }`
+          );
+          return pollForWidget(attempts + 1);
+        };
+
+        // Start polling
+        await pollForWidget();
+
+        // Final refresh
+        await fetchWidgets();
+      } catch (err) {
+        console.error('Failed to create widget from conversation:', err);
+        setError(
+          err instanceof Error ? err.message : 'Failed to create widget'
+        );
+      } finally {
+        setProcessingDropConversationId(null);
+      }
+    },
+    [fetchWidgets]
+  );
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-900 text-zinc-100">
       <main className="flex min-h-0 grow bg-zinc-900">
@@ -784,11 +1018,17 @@ export default function ChatPage() {
                   conversation.id
                 );
                 const isTagging = taggingConversationIds.has(conversation.id);
+                const isDragging = draggingConversationId === conversation.id;
+                const isProcessingDrop =
+                  processingDropConversationId === conversation.id;
                 return (
                   <div
                     key={conversation.id}
                     role="button"
                     tabIndex={0}
+                    draggable={!isRenaming}
+                    onDragStart={(e) => handleDragStart(e, conversation.id)}
+                    onDragEnd={handleDragEnd}
                     onClick={() => {
                       if (!isRenaming) {
                         if (isDashboardOpen) {
@@ -810,17 +1050,25 @@ export default function ChatPage() {
                       }
                     }}
                     className={`group relative flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
-                      isHighlighted
+                      isDragging
+                        ? 'opacity-50 ring-2 ring-amber-500 bg-amber-900/20'
+                        : isProcessingDrop
+                        ? 'opacity-70 ring-2 ring-amber-500/50 bg-amber-900/10'
+                        : isHighlighted
                         ? 'bg-amber-600/30 ring-1 ring-amber-500/50 shadow-sm shadow-amber-900/30'
                         : isActive
                         ? 'bg-zinc-700/70 shadow-sm shadow-zinc-900/50'
                         : 'hover:bg-zinc-800/50 active:bg-zinc-700/40'
                     }`}
                   >
-                    {/* Tagging indicator */}
-                    {isTagging && (
+                    {/* Tagging/Processing indicator */}
+                    {(isTagging || isProcessingDrop) && (
                       <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg bg-amber-500 animate-pulse" />
                     )}
+                    {/* Drag handle */}
+                    <div className="mr-1 flex-shrink-0 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity">
+                      <GripVertical className="h-4 w-4 text-zinc-500" />
+                    </div>
                     <div className="min-w-0 flex-1">
                       {isRenaming ? (
                         <input
@@ -862,6 +1110,12 @@ export default function ChatPage() {
                               <span className="flex items-center gap-1 text-xs text-amber-500">
                                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
                                 Tagging
+                              </span>
+                            )}
+                            {isProcessingDrop && (
+                              <span className="flex items-center gap-1 text-xs text-amber-500">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Adding to widget...
                               </span>
                             )}
                           </div>
@@ -924,6 +1178,19 @@ export default function ChatPage() {
           {isDashboardOpen ? (
             /* Dashboard View */
             <div className="flex h-full w-full flex-col bg-zinc-900 text-zinc-100 animate-in fade-in slide-in-from-left-4 duration-300">
+              {/* Drag instruction banner */}
+              {draggingConversationId &&
+                !selectedWidgetId &&
+                !showConversationTags && (
+                  <div className="shrink-0 flex items-center justify-center gap-3 bg-amber-900/30 border-b border-amber-500/30 px-4 py-3 text-amber-300">
+                    <GripVertical className="h-4 w-4" />
+                    <span className="text-sm font-medium">
+                      Drop on a widget to add data, or drop on &quot;Create New
+                      Widget&quot; to generate a new UI
+                    </span>
+                  </div>
+                )}
+
               {/* Dashboard Header - Only show when not in detail view */}
               {!selectedWidgetId && (
                 <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-8 py-5">
@@ -1034,7 +1301,23 @@ export default function ChatPage() {
                   /* Detail View - Full screen widget */
                   <div className="flex flex-1 flex-col overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
                     {/* Header bar with back button and title */}
-                    <div className="flex shrink-0 items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+                    <div
+                      className={`flex shrink-0 items-center gap-4 border-b px-4 py-3 transition-colors ${
+                        dropTargetWidgetId === selectedWidgetId
+                          ? 'border-amber-500 bg-amber-900/20'
+                          : 'border-zinc-800 bg-zinc-950'
+                      }`}
+                      onDragEnter={(e) =>
+                        selectedWidgetId &&
+                        handleWidgetDragEnter(e, selectedWidgetId)
+                      }
+                      onDragLeave={handleWidgetDragLeave}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) =>
+                        selectedWidgetId &&
+                        handleDropOnWidget(e, selectedWidgetId)
+                      }
+                    >
                       <button
                         type="button"
                         onClick={() => {
@@ -1047,11 +1330,23 @@ export default function ChatPage() {
                         <span>Back</span>
                       </button>
                       <div className="h-5 w-px bg-zinc-700" />
-                      <h2 className="text-sm font-medium text-zinc-100">
+                      <h2 className="flex-1 text-sm font-medium text-zinc-100">
                         {selectedWidgetDetail?.name ||
                           widgets.find((w) => w.id === selectedWidgetId)
                             ?.globalTag}
                       </h2>
+                      {dropTargetWidgetId === selectedWidgetId && (
+                        <span className="flex items-center gap-2 text-sm text-amber-400">
+                          <Plus className="h-4 w-4" />
+                          Drop to add data
+                        </span>
+                      )}
+                      {processingDropWidgetId === selectedWidgetId && (
+                        <span className="flex items-center gap-2 text-sm text-amber-400">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Processing...
+                        </span>
+                      )}
                     </div>
 
                     {/* Widget Content - Full screen below header */}
@@ -1134,78 +1429,177 @@ export default function ChatPage() {
                         </div>
                       </div>
                     ) : widgets.length === 0 ? (
-                      <div className="flex h-64 flex-col items-center justify-center gap-4">
-                        <LayoutDashboard className="h-16 w-16 text-zinc-700" />
-                        <div className="text-center">
-                          <p className="text-lg font-medium text-zinc-300">
-                            No widgets yet
-                          </p>
-                          <p className="text-sm text-zinc-500">
-                            Start conversations to generate widgets
-                            automatically
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {widgets.map((widget) => (
-                          <button
-                            key={widget.id}
-                            type="button"
-                            onClick={() => handleWidgetSelect(widget.id)}
-                            className={`group flex flex-col gap-4 rounded-xl border p-6 text-left transition-all duration-200 hover:shadow-xl hover:shadow-zinc-900/50 hover:-translate-y-0.5 ${
-                              widget.status === 'generating'
-                                ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
-                                : widget.status === 'error'
-                                ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
-                                : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div
-                                className={`flex h-12 w-12 items-center justify-center rounded-xl ${
-                                  widget.status === 'generating'
-                                    ? 'bg-amber-900/30 text-amber-500'
-                                    : widget.status === 'error'
-                                    ? 'bg-red-900/30 text-red-400'
-                                    : 'bg-zinc-700/50 text-amber-500'
+                      <div
+                        className={`flex h-64 flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed transition-all mx-4 ${
+                          draggingConversationId
+                            ? isDropTargetNewWidget
+                              ? 'border-amber-500 bg-amber-900/20'
+                              : 'border-amber-500/50 bg-amber-900/10'
+                            : 'border-transparent'
+                        }`}
+                        onDragEnter={handleNewWidgetDragEnter}
+                        onDragLeave={handleNewWidgetDragLeave}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDropOnNewWidget}
+                      >
+                        {draggingConversationId ? (
+                          <>
+                            <div
+                              className={`flex h-16 w-16 items-center justify-center rounded-full ${
+                                isDropTargetNewWidget
+                                  ? 'bg-amber-900/40 text-amber-400'
+                                  : 'bg-amber-900/20 text-amber-500'
+                              }`}
+                            >
+                              <Plus className="h-8 w-8" />
+                            </div>
+                            <div className="text-center">
+                              <p
+                                className={`text-lg font-medium ${
+                                  isDropTargetNewWidget
+                                    ? 'text-amber-300'
+                                    : 'text-amber-400'
                                 }`}
                               >
-                                {widget.status === 'generating' ? (
-                                  <Loader2 className="h-6 w-6 animate-spin" />
-                                ) : widget.status === 'error' ? (
-                                  <AlertCircle className="h-6 w-6" />
-                                ) : (
-                                  <LayoutDashboard className="h-6 w-6" />
-                                )}
-                              </div>
-                              <ChevronRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
+                                Drop to Create Widget
+                              </p>
+                              <p className="text-sm text-zinc-500">
+                                A new widget will be generated from this
+                                conversation
+                              </p>
                             </div>
-                            <div>
-                              <h4 className="text-lg font-medium text-zinc-200 line-clamp-2">
-                                {widget.name || widget.globalTag}
-                              </h4>
-                              <div className="mt-2 flex items-center gap-2">
-                                <p className="text-sm text-zinc-500">
-                                  {widget.conversationIds.length} conversation
-                                  {widget.conversationIds.length !== 1
-                                    ? 's'
-                                    : ''}
-                                </p>
-                                {widget.status === 'generating' && (
-                                  <span className="text-sm text-amber-500">
-                                    Generating...
-                                  </span>
-                                )}
-                                {widget.status === 'error' && (
-                                  <span className="text-sm text-red-400">
-                                    Error
-                                  </span>
-                                )}
-                              </div>
+                          </>
+                        ) : (
+                          <>
+                            <LayoutDashboard className="h-16 w-16 text-zinc-700" />
+                            <div className="text-center">
+                              <p className="text-lg font-medium text-zinc-300">
+                                No widgets yet
+                              </p>
+                              <p className="text-sm text-zinc-500">
+                                Start conversations to generate widgets
+                                automatically, or drag a conversation here
+                              </p>
                             </div>
-                          </button>
-                        ))}
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <div
+                        className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                        onDragOver={handleDragOver}
+                      >
+                        {widgets.map((widget) => {
+                          const isDropTarget = dropTargetWidgetId === widget.id;
+                          const isProcessing =
+                            processingDropWidgetId === widget.id;
+                          return (
+                            <button
+                              key={widget.id}
+                              type="button"
+                              onClick={() => handleWidgetSelect(widget.id)}
+                              onDragEnter={(e) =>
+                                handleWidgetDragEnter(e, widget.id)
+                              }
+                              onDragLeave={handleWidgetDragLeave}
+                              onDragOver={handleDragOver}
+                              onDrop={(e) => handleDropOnWidget(e, widget.id)}
+                              className={`group flex flex-col gap-4 rounded-xl border p-6 text-left transition-all duration-200 hover:shadow-xl hover:shadow-zinc-900/50 hover:-translate-y-0.5 ${
+                                isDropTarget
+                                  ? 'border-amber-500 bg-amber-900/30 ring-2 ring-amber-500/50 scale-[1.02]'
+                                  : isProcessing
+                                  ? 'border-amber-500/50 bg-amber-900/20 animate-pulse'
+                                  : widget.status === 'generating'
+                                  ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
+                                  : widget.status === 'error'
+                                  ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
+                                  : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div
+                                  className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                                    widget.status === 'generating'
+                                      ? 'bg-amber-900/30 text-amber-500'
+                                      : widget.status === 'error'
+                                      ? 'bg-red-900/30 text-red-400'
+                                      : 'bg-zinc-700/50 text-amber-500'
+                                  }`}
+                                >
+                                  {widget.status === 'generating' ? (
+                                    <Loader2 className="h-6 w-6 animate-spin" />
+                                  ) : widget.status === 'error' ? (
+                                    <AlertCircle className="h-6 w-6" />
+                                  ) : (
+                                    <LayoutDashboard className="h-6 w-6" />
+                                  )}
+                                </div>
+                                <ChevronRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
+                              </div>
+                              <div>
+                                <h4 className="text-lg font-medium text-zinc-200 line-clamp-2">
+                                  {widget.name || widget.globalTag}
+                                </h4>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <p className="text-sm text-zinc-500">
+                                    {widget.conversationIds.length} conversation
+                                    {widget.conversationIds.length !== 1
+                                      ? 's'
+                                      : ''}
+                                  </p>
+                                  {widget.status === 'generating' && (
+                                    <span className="text-sm text-amber-500">
+                                      Generating...
+                                    </span>
+                                  )}
+                                  {widget.status === 'error' && (
+                                    <span className="text-sm text-red-400">
+                                      Error
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                        {/* New Widget Drop Zone */}
+                        {draggingConversationId && (
+                          <div
+                            onDragEnter={handleNewWidgetDragEnter}
+                            onDragLeave={handleNewWidgetDragLeave}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDropOnNewWidget}
+                            className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-6 transition-all duration-200 ${
+                              isDropTargetNewWidget
+                                ? 'border-amber-500 bg-amber-900/20 scale-[1.02]'
+                                : 'border-zinc-600 bg-zinc-800/20 hover:border-zinc-500 hover:bg-zinc-800/30'
+                            }`}
+                          >
+                            <div
+                              className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                                isDropTargetNewWidget
+                                  ? 'bg-amber-900/40 text-amber-500'
+                                  : 'bg-zinc-700/50 text-zinc-400'
+                              }`}
+                            >
+                              <Plus className="h-6 w-6" />
+                            </div>
+                            <div className="text-center">
+                              <p
+                                className={`text-sm font-medium ${
+                                  isDropTargetNewWidget
+                                    ? 'text-amber-400'
+                                    : 'text-zinc-400'
+                                }`}
+                              >
+                                Create New Widget
+                              </p>
+                              <p className="text-xs text-zinc-500">
+                                Drop conversation here
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

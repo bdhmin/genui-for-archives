@@ -92,28 +92,34 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a tag clustering expert. Analyze conversation tags and categorize them into global tags.
+            content: `You are a tag clustering expert. Analyze conversation tags and create meaningful global tags that each deserve their own dedicated UI widget.
 
 You will receive:
 1. EXISTING global tags (if any) - these already have UI widgets built for them
 2. New conversation tags to categorize
 
 YOUR TASK:
-For each conversation, determine which global tag(s) it belongs to.
+For each conversation, determine which global tag(s) it belongs to. BE LIBERAL about creating new tags - each distinct topic that would benefit from its own UI should get its own tag.
 
 WHEN TO REUSE AN EXISTING TAG:
-- The conversation is about the SAME general topic (e.g., food/calories, workspace setup, purchases)
-- Even if the specific details differ, the category is the same
+- The conversation is about EXACTLY the same trackable topic (e.g., both about calorie tracking specifically)
+- The data type and structure would be identical
 - Use the EXACT text of the existing tag
 
-WHEN TO CREATE A NEW TAG:
-- The conversation covers a topic NOT represented by any existing tag
-- Examples of distinct categories that need separate tags:
-  - "Travel planning" vs "Meal planning" (different domains)
-  - "Code debugging" vs "Product research" (different activities)
-  - "Health tracking" vs "Financial budgeting" (different life areas)
+WHEN TO CREATE A NEW TAG (prefer this when in doubt!):
+- The conversation has a DIFFERENT focus, even within a similar domain
+- Examples where you SHOULD create separate tags:
+  - "Calorie Tracking" vs "Meal Planning" vs "Restaurant Recommendations" (different aspects of food)
+  - "Workspace Setup" vs "Office Furniture Purchases" vs "Ergonomics Research" (different aspects of office)
+  - "Daily Exercise Log" vs "Running Goals" vs "Gym Membership" (different aspects of fitness)
+  - "Book Recommendations" vs "Reading Progress" vs "Library Visits" (different aspects of reading)
+- If the conversation introduces a new TYPE of data to track, create a new tag
+- If the conversation would benefit from a different UI visualization, create a new tag
 - New tags should be short phrases (3-6 words)
-- New tags should be general enough to apply to multiple conversations
+- New tags should be specific enough to have a clear, focused UI
+
+GUIDING PRINCIPLE:
+Each global tag becomes a dedicated UI widget. Ask yourself: "Would this conversation's data be BETTER served by its own specialized UI, or does it truly belong with an existing widget?" When in doubt, CREATE A NEW TAG. Users prefer focused, specialized widgets over cramming everything into one generic widget.
 
 OUTPUT FORMAT:
 {

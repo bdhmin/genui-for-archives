@@ -142,3 +142,114 @@ export async function triggerFullTagging(conversationId: string): Promise<{
   return { round1: round1Result };
 }
 
+export type LinkConversationToWidgetResponse = {
+  success: boolean;
+  globalTagId?: string;
+  error?: string;
+};
+
+/**
+ * Links a conversation to a widget's global tag.
+ * This is used when manually adding a conversation as a data source for a widget.
+ */
+export async function linkConversationToWidget(
+  conversationId: string,
+  widgetId: string
+): Promise<LinkConversationToWidgetResponse> {
+  console.log("[TaggingService] Linking conversation to widget:", { conversationId, widgetId });
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.warn("[TaggingService] Supabase env vars not configured");
+    return { success: false, error: "Supabase not configured" };
+  }
+
+  try {
+    // First, get the widget's global_tag_id
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const { data: widget, error: widgetError } = await supabase
+      .from("ui_widgets")
+      .select("global_tag_id")
+      .eq("id", widgetId)
+      .single();
+
+    if (widgetError || !widget) {
+      console.error("[TaggingService] Widget not found:", widgetError);
+      return { success: false, error: "Widget not found" };
+    }
+
+    // Link conversation to the global tag
+    const { error: linkError } = await supabase
+      .from("conversation_global_tags")
+      .upsert(
+        { conversation_id: conversationId, global_tag_id: widget.global_tag_id },
+        { onConflict: "conversation_id,global_tag_id" }
+      );
+
+    if (linkError) {
+      console.error("[TaggingService] Failed to link conversation:", linkError);
+      return { success: false, error: linkError.message };
+    }
+
+    console.log("[TaggingService] Successfully linked conversation to widget");
+    return { success: true, globalTagId: widget.global_tag_id };
+  } catch (error) {
+    console.error("[TaggingService] Error linking conversation:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export type TriggerSchemaEvolutionResponse = {
+  success: boolean;
+  schemaChanged?: boolean;
+  newDataCount?: number;
+  error?: string;
+};
+
+/**
+ * Triggers the schema evolution edge function for a widget.
+ * This analyzes new conversation data and evolves the widget schema if needed.
+ */
+export async function triggerSchemaEvolution(
+  widgetId: string,
+  conversationId: string
+): Promise<TriggerSchemaEvolutionResponse> {
+  console.log("[TaggingService] Triggering schema evolution:", { widgetId, conversationId });
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.warn("[TaggingService] Supabase env vars not configured");
+    return { success: false, error: "Supabase not configured" };
+  }
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/evolve-widget-schema`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${SUPABASE_SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ widget_id: widgetId, conversation_id: conversationId }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[TaggingService] Schema evolution failed:", errorText);
+      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+    }
+
+    const data = await response.json() as TriggerSchemaEvolutionResponse;
+    console.log("[TaggingService] Schema evolution completed:", data);
+    return data;
+  } catch (error) {
+    console.error("[TaggingService] Schema evolution error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+

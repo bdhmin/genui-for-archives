@@ -237,18 +237,31 @@ The widget MUST match this exact design system from the parent application:
 - Font weights: font-medium, font-semibold, font-bold
 
 **COMPONENT PATTERNS:**
-- Cards: rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5
-- Buttons primary: rounded-lg bg-amber-600 text-white hover:bg-amber-500
-- Buttons secondary: rounded-lg bg-zinc-800 text-zinc-100 hover:bg-zinc-700
-- Buttons subtle: rounded-lg bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600
-- Input fields: rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500
-- Tags/badges: rounded-lg bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300
+- Cards: rounded-2xl border border-zinc-700/50 bg-zinc-800/30 p-5
+- Buttons primary: rounded-xl bg-zinc-700 text-zinc-100 hover:bg-zinc-600
+- Buttons secondary: rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700
+- Buttons subtle: rounded-xl bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-300
+- Delete/destructive buttons: rounded-xl bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 (NO red colors)
+- Input fields: rounded-xl bg-zinc-800 border border-zinc-700/50 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600
+- Tags/badges: rounded-xl bg-zinc-800/50 px-3 py-2 text-sm text-zinc-400
 - Accent dots/indicators: h-1.5 w-1.5 rounded-full bg-amber-500
 
+**MINIMAL COLOR PHILOSOPHY - CRITICAL:**
+- Use a MONOCHROMATIC color palette - only zinc grays with amber as the sole accent
+- ALL buttons should be zinc-based (zinc-700, zinc-800) - NOT semantic colors
+- NEVER use red for delete, green for add/save, or blue for edit
+- Delete buttons: use zinc-800 with zinc-400 text, hover to zinc-700 - differentiate with icon or text, NOT color
+- Add/Save buttons: use zinc-700 with zinc-100 text - NOT green
+- Edit buttons: use zinc-800 with zinc-400 text - NOT blue
+- Amber (amber-500, amber-600) is ONLY for: progress indicators, important highlights, active states
+- The aesthetic should be calm, neutral, and sophisticated - not a rainbow of action colors
+
 **BORDERS & SHADOWS:**
-- Subtle borders: border border-zinc-700/50
-- Highlighted borders: border-amber-500/30, ring-1 ring-amber-500/50
-- Shadows: shadow-lg shadow-zinc-900/50, shadow-sm
+- Subtle borders: border border-zinc-700/30 (softer, more transparent)
+- Highlighted borders: border-zinc-600 (NOT amber - keep it subtle)
+- Shadows: shadow-sm shadow-zinc-900/30 (soft, minimal shadows)
+- ALWAYS use generous border radius: rounded-xl (12px) or rounded-2xl (16px)
+- Avoid sharp corners entirely - everything should feel soft and rounded
 
 **SPACING:**
 - Cards: p-5 or p-6
@@ -256,9 +269,10 @@ The widget MUST match this exact design system from the parent application:
 - Section padding: px-6 py-4, p-8
 
 **INTERACTIVE STATES:**
-- Hover transitions: transition-all duration-200, hover:scale-105
-- Loading spinners: animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500
-- Focus states: focus:ring-1 focus:ring-zinc-500 focus:outline-none
+- Hover transitions: transition-colors duration-200 (subtle, no scale transforms)
+- Loading spinners: animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-400
+- Focus states: focus:border-zinc-600 focus:outline-none (subtle, no rings)
+- Hover backgrounds: hover:bg-zinc-800/50 or hover:bg-zinc-700/50 (very subtle)
 
 **EMPTY STATES:**
 - Center content with flex items-center justify-center
@@ -266,20 +280,23 @@ The widget MUST match this exact design system from the parent application:
 - Title in text-zinc-300, description in text-zinc-500
 
 **SPECIFIC UI PATTERNS TO USE:**
-- Date groupings: Use section headers with text-sm font-medium text-zinc-400
-- List items: rounded-lg bg-zinc-900/50 p-3 with hover:bg-zinc-800
-- Inline actions: Small icon buttons with p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700
-- Form rows: flex items-center gap-3 with labels as text-sm text-zinc-400
-- Summary/total rows: bg-zinc-800/50 rounded-lg p-3 with font-semibold
+- Date groupings: Use section headers with text-sm font-medium text-zinc-500 (muted)
+- List items: rounded-xl p-4 with hover:bg-zinc-800/30 - keep backgrounds flat
+- Inline actions: Small icon buttons with p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50
+- Form rows: flex items-center gap-4 with labels as text-sm text-zinc-500
+- Summary/total rows: rounded-xl p-4 with font-medium text-zinc-300
+- All interactive elements should have rounded-lg or rounded-xl corners
 
 **CRITICAL STYLING RULES:**
-- ALWAYS use rounded corners: rounded-lg (8px) or rounded-xl (12px) - NEVER use sharp corners
-- ALWAYS use proper padding: p-3, p-4, p-5, p-6 for containers - NEVER skip padding
-- ALWAYS use gap utilities for spacing between items: gap-2, gap-3, gap-4
+- ALWAYS use GENEROUS rounded corners: rounded-xl (12px) or rounded-2xl (16px) - NEVER sharp corners
+- Smaller elements use rounded-lg (8px) minimum - buttons, badges, small inputs
+- ALWAYS use proper padding: p-4, p-5, p-6 for containers - generous spacing
+- ALWAYS use gap utilities for spacing between items: gap-3, gap-4, gap-6
 - ALWAYS use proper margins between sections: mb-4, mb-6, mt-4, mt-6
 - ALWAYS apply border-radius to inputs, buttons, and cards
-- Use px-3 py-2 for button padding, px-4 py-3 for larger buttons
+- Use px-4 py-2.5 for button padding, px-5 py-3 for larger buttons
 - Font is already Hanken Grotesk from parent - just use font-sans if needed
+- THE UI SHOULD FEEL SOFT, CALM, AND MINIMAL - like a premium notes app
 
 **FLAT DESIGN - MINIMAL BACKGROUNDS:**
 - Use ONE consistent background: bg-zinc-900 - DO NOT layer multiple backgrounds
@@ -294,25 +311,31 @@ Main container (flat, no extra background):
 \`<div className="flex flex-col gap-4">\`
 
 List item row (use border for separation, NOT background):
-\`<div className="flex items-center justify-between py-4 border-b border-zinc-800 last:border-b-0">\`
+\`<div className="flex items-center justify-between py-4 border-b border-zinc-800/50 last:border-b-0">\`
 
 Date section header:
-\`<h3 className="text-sm font-medium text-zinc-400 pt-4 pb-2">December 15, 2025</h3>\`
+\`<h3 className="text-sm font-medium text-zinc-500 pt-4 pb-2">December 15, 2025</h3>\`
 
-Primary button:
-\`<button className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 transition-colors">\`
+Primary button (neutral, NOT colored):
+\`<button className="rounded-xl bg-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors">\`
 
 Secondary/subtle button:
-\`<button className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors">\`
+\`<button className="rounded-xl bg-zinc-800/50 px-4 py-2.5 text-sm text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-300 transition-colors">\`
+
+Delete button (NO red - use neutral with icon):
+\`<button className="rounded-xl bg-zinc-800/50 px-4 py-2.5 text-sm text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-300 transition-colors">\`
 
 Input field:
-\`<input className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />\`
+\`<input className="w-full rounded-xl border border-zinc-700/50 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none" />\`
 
 Summary/total row (subtle, minimal):
-\`<div className="mt-4 pt-4 border-t border-zinc-700 flex justify-between items-center">\`
+\`<div className="mt-4 pt-4 border-t border-zinc-800/50 flex justify-between items-center">\`
 
-Action links:
-\`<button className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Edit</button>\`
+Action links (text-based, no color):
+\`<button className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Edit</button>\`
+
+Icon buttons (small, subtle):
+\`<button className="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors">\`
 
 COMPONENT REQUIREMENTS:
 - Must be a single, self-contained React functional component
