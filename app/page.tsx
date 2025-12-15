@@ -49,6 +49,12 @@ type Widget = {
   conversationIds: string[];
 };
 
+type ConversationTagGroup = {
+  conversationId: string;
+  conversationTitle: string;
+  tags: { id: string; tag: string; createdAt: string }[];
+};
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -74,6 +80,15 @@ export default function ChatPage() {
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const [taggingConversationIds, setTaggingConversationIds] = useState<
+    Set<string>
+  >(new Set());
+  const [showConversationTags, setShowConversationTags] = useState(false);
+  const [conversationTagGroups, setConversationTagGroups] = useState<
+    ConversationTagGroup[]
+  >([]);
+  const [isLoadingConversationTags, setIsLoadingConversationTags] =
+    useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -388,6 +403,18 @@ export default function ChatPage() {
         throw new Error('Missing conversation id in stream');
       }
 
+      // Mark conversation as being tagged
+      setTaggingConversationIds((prev) => new Set(prev).add(newConversationId));
+
+      // Clear tagging status after ~10 seconds (approximate tagging time)
+      setTimeout(() => {
+        setTaggingConversationIds((prev) => {
+          const next = new Set(prev);
+          next.delete(newConversationId!);
+          return next;
+        });
+      }, 10000);
+
       void fetchConversations();
     } catch (err) {
       const message =
@@ -467,11 +494,36 @@ export default function ChatPage() {
     }
   };
 
+  // Fetch conversation tags (Round 1 tags)
+  const fetchConversationTags = useCallback(async () => {
+    setIsLoadingConversationTags(true);
+    try {
+      const res = await fetch('/api/tags/conversation-tags');
+      if (!res.ok) {
+        throw new Error('Failed to load conversation tags');
+      }
+      const data = await res.json();
+      setConversationTagGroups(data.conversationTags ?? []);
+    } catch (err) {
+      console.error('Failed to fetch conversation tags:', err);
+    } finally {
+      setIsLoadingConversationTags(false);
+    }
+  }, []);
+
+  // Fetch conversation tags when toggled
+  useEffect(() => {
+    if (showConversationTags) {
+      void fetchConversationTags();
+    }
+  }, [showConversationTags, fetchConversationTags]);
+
   // Close dashboard
   const closeDashboard = () => {
     setIsDashboardOpen(false);
     setSelectedWidgetId(null);
     setHighlightedConversationIds([]);
+    setShowConversationTags(false);
   };
 
   return (
@@ -541,6 +593,7 @@ export default function ChatPage() {
                 const isHighlighted = highlightedConversationIds.includes(
                   conversation.id
                 );
+                const isTagging = taggingConversationIds.has(conversation.id);
                 return (
                   <div
                     key={conversation.id}
@@ -574,6 +627,10 @@ export default function ChatPage() {
                         : 'hover:bg-zinc-800/50 active:bg-zinc-700/40'
                     }`}
                   >
+                    {/* Tagging indicator */}
+                    {isTagging && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg bg-amber-500 animate-pulse" />
+                    )}
                     <div className="min-w-0 flex-1">
                       {isRenaming ? (
                         <input
@@ -607,9 +664,17 @@ export default function ChatPage() {
                           <p className="truncate text-sm font-medium text-zinc-50">
                             {conversation.title || 'Untitled'}
                           </p>
-                          <p className="truncate text-xs text-zinc-400">
-                            {formatDate(conversation.createdAt)}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-xs text-zinc-400">
+                              {formatDate(conversation.createdAt)}
+                            </p>
+                            {isTagging && (
+                              <span className="flex items-center gap-1 text-xs text-amber-500">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                Tagging
+                              </span>
+                            )}
+                          </div>
                         </>
                       )}
                     </div>
@@ -673,25 +738,103 @@ export default function ChatPage() {
               <div className="flex items-center justify-between border-b border-zinc-800 px-8 py-5">
                 <div>
                   <h1 className="text-2xl font-bold text-zinc-50">
-                    Generated UIs
+                    {showConversationTags
+                      ? 'Conversation Tags'
+                      : 'Generated UIs'}
                   </h1>
                   <p className="text-sm text-zinc-400">
-                    Auto-generated UIs from your conversations
+                    {showConversationTags
+                      ? 'Tags generated from each conversation (Round 1)'
+                      : 'Auto-generated UIs from your conversations'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={closeDashboard}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
-                  aria-label="Close dashboard"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowConversationTags(!showConversationTags)
+                    }
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                      showConversationTags
+                        ? 'bg-amber-600 text-white hover:bg-amber-500'
+                        : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100'
+                    }`}
+                  >
+                    {showConversationTags
+                      ? 'Show Generated UIs'
+                      : 'See Conversation Tags'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeDashboard}
+                    className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                    aria-label="Close dashboard"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
 
               {/* Dashboard Content */}
               <div className="flex-1 overflow-y-auto p-8">
-                {isLoadingTags ? (
+                {showConversationTags ? (
+                  /* Conversation Tags View */
+                  isLoadingConversationTags ? (
+                    <div className="flex h-64 items-center justify-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />
+                        <p className="text-sm text-zinc-400">
+                          Loading conversation tags...
+                        </p>
+                      </div>
+                    </div>
+                  ) : conversationTagGroups.length === 0 ? (
+                    <div className="flex h-64 flex-col items-center justify-center gap-4">
+                      <LayoutDashboard className="h-16 w-16 text-zinc-700" />
+                      <div className="text-center">
+                        <p className="text-lg font-medium text-zinc-300">
+                          No tags yet
+                        </p>
+                        <p className="text-sm text-zinc-500">
+                          Send messages in conversations to generate tags
+                          automatically
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-6">
+                      <p className="text-sm text-zinc-400">
+                        {conversationTagGroups.reduce(
+                          (acc, g) => acc + g.tags.length,
+                          0
+                        )}{' '}
+                        tags across {conversationTagGroups.length} conversations
+                      </p>
+                      {conversationTagGroups.map((group) => (
+                        <div
+                          key={group.conversationId}
+                          className="rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5"
+                        >
+                          <h3 className="mb-3 font-medium text-zinc-200">
+                            {group.conversationTitle}
+                          </h3>
+                          <div className="flex flex-col gap-2">
+                            {group.tags.map((tag) => (
+                              <div
+                                key={tag.id}
+                                className="flex items-start gap-2 rounded-lg bg-zinc-900/50 p-3 text-sm"
+                              >
+                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                                <span className="text-zinc-300">{tag.tag}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : /* Widgets View */
+                isLoadingTags ? (
                   <div className="flex h-64 items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />

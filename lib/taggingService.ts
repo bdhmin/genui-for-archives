@@ -39,13 +39,20 @@ export type Round2Response = {
  * Automatically triggers Round 2 afterwards.
  */
 export async function triggerRound1Tagging(conversationId: string): Promise<Round1Response> {
+  console.log("[TaggingService] Triggering Round 1 for conversation:", conversationId);
+  
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.warn("[TaggingService] Supabase env vars not configured, skipping tagging");
+    console.warn("[TaggingService] SUPABASE_URL:", SUPABASE_URL ? "set" : "NOT SET");
+    console.warn("[TaggingService] SUPABASE_SERVICE_ROLE_KEY:", SUPABASE_SERVICE_KEY ? "set" : "NOT SET");
     return { success: false, error: "Supabase not configured" };
   }
 
+  const url = `${SUPABASE_URL}/functions/v1/round-1-tags`;
+  console.log("[TaggingService] Calling edge function:", url);
+
   try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/round-1-tags`, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${SUPABASE_SERVICE_KEY}`,
@@ -54,14 +61,16 @@ export async function triggerRound1Tagging(conversationId: string): Promise<Roun
       body: JSON.stringify({ conversation_id: conversationId }),
     });
 
+    console.log("[TaggingService] Response status:", response.status);
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[TaggingService] Round 1 failed:", errorText);
+      console.error("[TaggingService] Round 1 failed:", response.status, errorText);
       return { success: false, error: `HTTP ${response.status}: ${errorText}` };
     }
 
     const data = await response.json() as Round1Response;
-    console.log("[TaggingService] Round 1 completed:", data);
+    console.log("[TaggingService] Round 1 completed successfully:", JSON.stringify(data, null, 2));
     return data;
   } catch (error) {
     console.error("[TaggingService] Round 1 error:", error);
