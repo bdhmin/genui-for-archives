@@ -5,6 +5,7 @@ import {
   Conversation,
   getConversationStore,
 } from "@/lib/conversationStore";
+import { generateConversationTitle } from "@/lib/titleGenerator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,24 +63,81 @@ export async function POST(req: Request) {
     const updated = await store.getConversation(conversation.id);
     const history = updated?.messages ?? [userMessage];
 
-    const completion = await openai.chat.completions.create({
+    const stream = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: history.map(({ role, content }) => ({ role, content })),
-      max_output_tokens: 500,
+      stream: true,
     });
 
-    const assistantContent = completion.choices[0]?.message?.content ?? "";
-    const assistantMessage: ChatMessage = {
-      role: "assistant",
-      content: assistantContent,
-      createdAt: new Date().toISOString(),
-    };
+    const encoder = new TextEncoder();
+    let fullContent = "";
 
-    await store.appendMessage(conversation.id, assistantMessage);
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `event:meta\ndata:${JSON.stringify({
+              conversationId: conversation!.id,
+            })}\n\n`
+          )
+        );
 
-    return NextResponse.json({
-      conversationId: conversation.id,
-      message: assistantMessage,
+        (async () => {
+          try {
+            for await (const chunk of stream) {
+              const delta = chunk.choices[0]?.delta?.content ?? "";
+              if (!delta) continue;
+              fullContent += delta;
+              controller.enqueue(
+                encoder.encode(
+                  `event:token\ndata:${JSON.stringify(delta)}\n\n`
+                )
+              );
+            }
+
+            const assistantMessage: ChatMessage = {
+              role: "assistant",
+              content: fullContent,
+              createdAt: new Date().toISOString(),
+            };
+
+            await store.appendMessage(conversation!.id, assistantMessage);
+
+            const shouldGenerateTitle =
+              !conversation?.title ||
+              conversation.title === "New conversation";
+
+            if (shouldGenerateTitle) {
+              const title = await generateConversationTitle({
+                userMessage: input,
+                assistantMessage: fullContent,
+              });
+              await store.setTitle(conversation!.id, title);
+            }
+
+            controller.enqueue(
+              encoder.encode(`event:done\ndata:done\n\n`)
+            );
+          } catch (error) {
+            console.error("Stream error", error);
+            controller.enqueue(
+              encoder.encode(
+                `event:error\ndata:${JSON.stringify("stream error")}\n\n`
+              )
+            );
+          } finally {
+            controller.close();
+          }
+        })();
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
     });
   } catch (error) {
     console.error("Chat API error", error);

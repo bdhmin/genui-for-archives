@@ -1,0 +1,2 @@
+{"sessionId":"debug-session","runId":"run1","hypothesisId":"H4","location":"app/page.tsx:loadConversation:start","message":"load conversation click","data":{"id":"85d87c05-6b94-4cf0-8b19-70e91846dc64","listCount":1,"activeId":null},"timestamp":1765781389575}
+{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"app/api/conversations/[id]/route.ts:GET","message":"get conversation","data":{"found":false},"timestamp":1765781389798}
