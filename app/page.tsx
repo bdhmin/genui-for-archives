@@ -11,6 +11,7 @@ import {
 import type { JSX, ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Send } from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -299,6 +300,21 @@ export default function ChatPage() {
             const meta = JSON.parse(data) as { conversationId: string };
             newConversationId = meta.conversationId;
             setConversationId(meta.conversationId);
+            // If this is a new conversation (not in the list), add it to sidebar
+            setConversations((prev) => {
+              const exists = prev.some((c) => c.id === meta.conversationId);
+              if (exists) return prev;
+              const now = new Date().toISOString();
+              return [
+                {
+                  id: meta.conversationId,
+                  title: 'New conversation',
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                ...prev,
+              ];
+            });
           } else if (event === 'token') {
             const token = JSON.parse(data) as string;
             assistantContent += token;
@@ -310,6 +326,18 @@ export default function ChatPage() {
               };
               return next;
             });
+          } else if (event === 'title') {
+            const title = JSON.parse(data) as string;
+            console.log('[Frontend] Received title event:', {
+              title,
+              newConversationId,
+            });
+            // Update the conversation title in the sidebar immediately
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === newConversationId ? { ...c, title } : c
+              )
+            );
           } else if (event === 'error') {
             const message = JSON.parse(data) as string;
             throw new Error(message);
@@ -364,10 +392,10 @@ export default function ChatPage() {
     });
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-zinc-900 text-zinc-100">
-      <main className="flex grow bg-zinc-900">
-        <aside className="flex w-80 shrink-0 flex-col gap-4 bg-zinc-950 px-5 py-6 text-zinc-50 lg:w-72">
-          <div className="flex items-center justify-between">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-900 text-zinc-100">
+      <main className="flex min-h-0 grow bg-zinc-900">
+        <aside className="flex w-80 shrink-0 flex-col gap-4 overflow-hidden bg-zinc-950 px-5 py-6 text-zinc-50 lg:w-72">
+          <div className="flex flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold text-zinc-50">
                 Conversations
@@ -378,9 +406,16 @@ export default function ChatPage() {
               type="button"
               onClick={handleCreateConversation}
               disabled={isCreating}
-              className="flex h-8 items-center gap-1 rounded-md bg-zinc-100 px-3 text-xs font-semibold text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 text-sm font-semibold text-zinc-100 transition-all hover:bg-zinc-700 active:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isCreating ? '...' : 'Add +'}
+              {isCreating ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-900" />
+              ) : (
+                <>
+                  <span>New Conversation</span>
+                  <span className="text-lg leading-none">+</span>
+                </>
+              )}
             </button>
           </div>
           <div className="flex grow flex-col gap-2 overflow-y-auto">
@@ -407,8 +442,10 @@ export default function ChatPage() {
                         void loadConversation(conversation.id);
                       }
                     }}
-                    className={`group flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition ${
-                      isActive ? 'bg-zinc-800' : 'hover:bg-zinc-900'
+                    className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
+                      isActive
+                        ? 'bg-zinc-700/70 shadow-sm shadow-zinc-900/50'
+                        : 'hover:bg-zinc-800/50 active:bg-zinc-700/40'
                     }`}
                   >
                     <div className="min-w-0">
@@ -437,10 +474,10 @@ export default function ChatPage() {
             )}
           </div>
         </aside>
-        <div className="flex grow justify-center px-4 sm:px-6">
-          <div className="flex w-full max-w-5xl flex-col gap-4 bg-zinc-900 px-6 py-6 text-zinc-100">
-            <section className="flex grow flex-col gap-3">
-              <div className="flex grow flex-col gap-3 overflow-y-auto rounded-xl bg-zinc-900 p-2">
+        <div className="flex min-h-0 grow justify-center px-4 sm:px-6">
+          <div className="flex h-full w-full max-w-3xl flex-col bg-zinc-900 text-zinc-100">
+            <section className="flex min-h-0 grow flex-col">
+              <div className="flex grow flex-col gap-3 overflow-y-auto p-6">
                 {isLoadingConversation ? (
                   <div className="flex grow items-center justify-center text-sm text-zinc-300">
                     Loading conversation...
@@ -460,18 +497,59 @@ export default function ChatPage() {
                       }`}
                     >
                       <div
-                        className={`max-w-[75%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${
+                        className={`text-base leading-7 ${
                           message.role === 'user'
-                            ? 'bg-zinc-100 text-zinc-900'
-                            : 'bg-zinc-800 text-zinc-100'
+                            ? 'max-w-[80%] rounded-2xl bg-zinc-700 px-4 py-3 text-zinc-100'
+                            : 'w-full px-2 py-2 text-zinc-100'
                         }`}
                       >
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
-                          className={`prose prose-sm max-w-none break-words prose-pre:whitespace-pre-wrap prose-pre:bg-zinc-800 prose-pre:text-zinc-100 prose-code:text-[0.95em] ${
-                            message.role === 'user' ? '' : 'prose-invert'
-                          }`}
+                          className="max-w-none break-words"
                           components={{
+                            h1: ({ children }: { children?: ReactNode }) => (
+                              <h1 className="mt-8 mb-4 text-2xl font-bold first:mt-0">
+                                {children}
+                              </h1>
+                            ),
+                            h2: ({ children }: { children?: ReactNode }) => (
+                              <h2 className="mt-8 mb-4 text-xl font-bold first:mt-0">
+                                {children}
+                              </h2>
+                            ),
+                            h3: ({ children }: { children?: ReactNode }) => (
+                              <h3 className="mt-6 mb-3 text-lg font-bold first:mt-0">
+                                {children}
+                              </h3>
+                            ),
+                            p: ({ children }: { children?: ReactNode }) => (
+                              <p className="my-4 first:mt-0 last:mb-0">
+                                {children}
+                              </p>
+                            ),
+                            ul: ({ children }: { children?: ReactNode }) => (
+                              <ul className="mt-4 mb-2 list-disc pl-6">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }: { children?: ReactNode }) => (
+                              <ol className="mt-4 mb-2 list-decimal pl-6">
+                                {children}
+                              </ol>
+                            ),
+                            li: ({ children }: { children?: ReactNode }) => (
+                              <li className="my-1">{children}</li>
+                            ),
+                            blockquote: ({
+                              children,
+                            }: {
+                              children?: ReactNode;
+                            }) => (
+                              <blockquote className="my-4 border-l-4 border-zinc-600 pl-4 italic">
+                                {children}
+                              </blockquote>
+                            ),
+                            hr: () => <hr className="my-6 border-zinc-700" />,
                             code({
                               inline,
                               className,
@@ -485,11 +563,7 @@ export default function ChatPage() {
                               if (inline) {
                                 return (
                                   <code
-                                    className={`rounded bg-zinc-800/20 px-1 py-[1px] ${
-                                      message.role === 'user'
-                                        ? 'text-white'
-                                        : 'text-zinc-900'
-                                    }`}
+                                    className="rounded bg-zinc-600 px-1.5 py-0.5 text-sm"
                                     {...props}
                                   >
                                     {children}
@@ -497,7 +571,7 @@ export default function ChatPage() {
                                 );
                               }
                               return (
-                                <pre className="overflow-auto rounded-lg bg-zinc-900 p-3 text-zinc-100">
+                                <pre className="my-4 overflow-auto rounded-lg bg-zinc-800 p-4 text-sm text-zinc-100">
                                   <code {...props} className={className}>
                                     {children}
                                   </code>
@@ -514,28 +588,54 @@ export default function ChatPage() {
                 )}
                 <div ref={bottomRef} />
               </div>
-              {error ? (
-                <div className="px-1 text-sm text-red-200">{error}</div>
-              ) : null}
             </section>
 
-            <form onSubmit={handleSubmit} className="flex items-end gap-3 pt-3">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={3}
-                placeholder="Send a message..."
-                className="min-h-[72px] w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={isLoading || !input.trim()}
-                className="h-[40px] rounded-lg bg-zinc-100 px-4 text-sm font-semibold text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isLoading ? 'Thinking...' : 'Send'}
-              </button>
-            </form>
+            <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
+              {error ? (
+                <div className="mb-3 text-sm text-red-200">{error}</div>
+              ) : null}
+              <form onSubmit={handleSubmit} className="relative">
+                <div className="relative flex items-end rounded-2xl border border-zinc-700 bg-zinc-800/50 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                  <textarea
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                      }
+                    }}
+                    value={input}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      const target = e.target;
+                      target.style.height = 'auto';
+                      target.style.height = `${Math.min(
+                        target.scrollHeight,
+                        200
+                      )}px`;
+                    }}
+                    onKeyDown={handleKeyDown}
+                    rows={1}
+                    placeholder="Send a message..."
+                    className="max-h-[200px] min-h-[48px] w-full resize-none bg-transparent py-3 pl-4 pr-14 text-base leading-7 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isLoading || !input.trim()}
+                    className="absolute bottom-2 right-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-900 transition-all hover:bg-white hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                    aria-label="Send message"
+                  >
+                    {isLoading ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-900" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                <p className="mt-2 text-center text-xs text-zinc-500">
+                  Press Enter to send, Shift + Enter for new line
+                </p>
+              </form>
+            </div>
           </div>
         </div>
       </main>

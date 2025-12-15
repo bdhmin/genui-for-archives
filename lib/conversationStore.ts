@@ -126,12 +126,17 @@ class FileConversationStore implements ConversationStore {
   }
 
   async setTitle(id: string, title: string): Promise<Conversation | null> {
+    console.log("[FileStore] setTitle called:", { id, title });
     const conversations = await this.readAll();
     const conversation = conversations.find((c) => c.id === id);
-    if (!conversation) return null;
+    if (!conversation) {
+      console.warn("[FileStore] Conversation not found for title update");
+      return null;
+    }
     conversation.title = title;
     conversation.updatedAt = new Date().toISOString();
     await this.writeAll(conversations);
+    console.log("[FileStore] Title updated successfully");
     return conversation;
   }
 
@@ -282,19 +287,23 @@ class SupabaseConversationStore implements ConversationStore {
   }
 
   async setTitle(id: string, title: string): Promise<Conversation | null> {
+    console.log("[Supabase] setTitle called:", { id, title });
     const { error } = await this.client
       .from("conversations")
       .update({ title })
       .eq("id", id);
 
     if (error && this.isMissingTitleColumn(error)) {
+      console.warn("[Supabase] Title column missing in database, title not saved");
       return this.getConversation(id);
     }
 
     if (error) {
+      console.error("[Supabase] setTitle error:", error.message);
       throw new Error(error.message);
     }
 
+    console.log("[Supabase] Title updated successfully");
     return this.getConversation(id);
   }
 
