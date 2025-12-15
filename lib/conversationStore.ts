@@ -251,7 +251,7 @@ class SupabaseConversationStore implements ConversationStore {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row) => ({
+    return (data ?? []).map((row: { id: string; created_at: string; updated_at: string; title?: string }) => ({
       id: row.id,
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
