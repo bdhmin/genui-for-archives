@@ -8,10 +8,10 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { JSX, ReactNode } from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import type { ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, MoreHorizontal, Trash2, Pencil } from 'lucide-react';
+import { Send, ArrowDown } from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -36,31 +36,52 @@ export default function ChatPage() {
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  // Check if scrolled to bottom (with small threshold)
+  const isAtBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    const threshold = 50;
+    return (
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      threshold
+    );
+  }, []);
 
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setMenuOpenId(null);
-      }
-    };
-    if (menuOpenId) {
-      document.addEventListener('mousedown', handleClickOutside);
+  // Handle user scroll
+  const handleScroll = useCallback(() => {
+    if (isAtBottom()) {
+      setUserHasScrolledUp(false);
+    } else {
+      setUserHasScrolledUp(true);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [menuOpenId]);
+  }, [isAtBottom]);
+
+  // Scroll to bottom function
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setUserHasScrolledUp(false);
+  }, []);
+
+  // Auto-scroll only when AI is generating and user hasn't scrolled up
+  useEffect(() => {
+    if (isLoading && !userHasScrolledUp) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading, userHasScrolledUp]);
+
+  // Scroll to bottom when conversation loads
+  useEffect(() => {
+    if (!isLoadingConversation && messages.length > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [isLoadingConversation, messages.length]);
 
   const fetchConversations = useCallback(async () => {
     setIsListLoading(true);
@@ -90,57 +111,14 @@ export default function ChatPage() {
   const loadConversation = useCallback(async (id: string) => {
     setIsLoadingConversation(true);
     setError(null);
+    setUserHasScrolledUp(false);
     try {
-      // #region agent log
-      fetch(
-        'http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'run1',
-            hypothesisId: 'H4',
-            location: 'app/page.tsx:loadConversation:start',
-            message: 'load conversation click',
-            data: {
-              id,
-              listCount: conversations.length,
-              activeId: conversationId,
-            },
-            timestamp: Date.now(),
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       const res = await fetch(`/api/conversations/${id}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to load conversation');
       }
       const conversation = await res.json();
-      // #region agent log
-      fetch(
-        'http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'run1',
-            hypothesisId: 'H4',
-            location: 'app/page.tsx:loadConversation:success',
-            message: 'load conversation success',
-            data: {
-              requestedId: id,
-              responseId: conversation.id,
-              messageCount: conversation.messages?.length ?? 0,
-            },
-            timestamp: Date.now(),
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       setConversationId(conversation.id);
       setMessages(conversation.messages ?? []);
     } catch (err) {
@@ -188,65 +166,11 @@ export default function ChatPage() {
     setDeletingId(id);
     setError(null);
     try {
-      // #region agent log
-      fetch(
-        'http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'pre-fix',
-            hypothesisId: 'H2',
-            location: 'app/page.tsx:handleDeleteConversation:start',
-            message: 'delete click',
-            data: { id, conversationId },
-            timestamp: Date.now(),
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
-      // #region agent log
-      fetch(
-        'http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'pre-fix',
-            hypothesisId: 'H2',
-            location: 'app/page.tsx:handleDeleteConversation:url',
-            message: 'delete fetch url',
-            data: { url: `/api/conversations/${id}` },
-            timestamp: Date.now(),
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to delete conversation');
       }
-      // #region agent log
-      fetch(
-        'http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'pre-fix',
-            hypothesisId: 'H2',
-            location: 'app/page.tsx:handleDeleteConversation:success',
-            message: 'delete success',
-            data: { id },
-            timestamp: Date.now(),
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (conversationId === id) {
         setConversationId(null);
@@ -261,35 +185,6 @@ export default function ChatPage() {
     }
   };
 
-  const handleRenameConversation = async (id: string, newTitle: string) => {
-    if (!newTitle.trim()) {
-      setRenamingId(null);
-      return;
-    }
-    setError(null);
-    try {
-      const res = await fetch(`/api/conversations/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle.trim() }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to rename conversation');
-      }
-      setConversations((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title: newTitle.trim() } : c))
-      );
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to rename conversation';
-      setError(message);
-    } finally {
-      setRenamingId(null);
-      setRenameValue('');
-    }
-  };
-
   const sendMessage = async () => {
     const content = input.trim();
     if (!content || isLoading) return;
@@ -298,6 +193,7 @@ export default function ChatPage() {
     setInput('');
     setIsLoading(true);
     setError(null);
+    setUserHasScrolledUp(false);
 
     try {
       const response = await fetch('/api/chat', {
@@ -374,10 +270,6 @@ export default function ChatPage() {
             });
           } else if (event === 'title') {
             const title = JSON.parse(data) as string;
-            console.log('[Frontend] Received title event:', {
-              title,
-              newConversationId,
-            });
             // Update the conversation title in the sidebar immediately
             setConversations((prev) =>
               prev.map((c) =>
@@ -407,10 +299,7 @@ export default function ChatPage() {
         throw new Error('Missing conversation id in stream');
       }
 
-      // Note: We don't call fetchConversations() here anymore because
-      // the sidebar is already updated via SSE events (meta for new conversations,
-      // title for title updates). This prevents the database from overwriting
-      // titles that were just set via SSE but not yet persisted.
+      void fetchConversations();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Something went wrong';
@@ -479,115 +368,44 @@ export default function ChatPage() {
             ) : (
               conversations.map((conversation) => {
                 const isActive = conversation.id === conversationId;
-                const isMenuOpen = menuOpenId === conversation.id;
-                const isRenaming = renamingId === conversation.id;
                 return (
                   <div
                     key={conversation.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => {
-                      if (!isRenaming) void loadConversation(conversation.id);
-                    }}
+                    onClick={() => void loadConversation(conversation.id)}
                     onKeyDown={(event) => {
-                      if (
-                        !isRenaming &&
-                        (event.key === 'Enter' || event.key === ' ')
-                      ) {
+                      if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         void loadConversation(conversation.id);
                       }
                     }}
-                    className={`group relative flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
+                    className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
                       isActive
                         ? 'bg-zinc-700/70 shadow-sm shadow-zinc-900/50'
                         : 'hover:bg-zinc-800/50 active:bg-zinc-700/40'
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      {isRenaming ? (
-                        <input
-                          type="text"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            e.stopPropagation();
-                            if (e.key === 'Enter') {
-                              void handleRenameConversation(
-                                conversation.id,
-                                renameValue
-                              );
-                            } else if (e.key === 'Escape') {
-                              setRenamingId(null);
-                              setRenameValue('');
-                            }
-                          }}
-                          onBlur={() => {
-                            void handleRenameConversation(
-                              conversation.id,
-                              renameValue
-                            );
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          autoFocus
-                          className="w-full rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-50 outline-none ring-1 ring-zinc-600 focus:ring-zinc-500"
-                        />
-                      ) : (
-                        <>
-                          <p className="truncate text-sm font-medium text-zinc-50">
-                            {conversation.title || 'Untitled'}
-                          </p>
-                          <p className="truncate text-xs text-zinc-400">
-                            {formatDate(conversation.createdAt)}
-                          </p>
-                        </>
-                      )}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-zinc-50">
+                        {conversation.title || 'Untitled'}
+                      </p>
+                      <p className="truncate text-xs text-zinc-400">
+                        {formatDate(conversation.createdAt)}
+                      </p>
                     </div>
-                    <div className="relative" ref={isMenuOpen ? menuRef : null}>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setMenuOpenId(isMenuOpen ? null : conversation.id);
-                        }}
-                        className="rounded p-1 text-zinc-500 transition hover:bg-zinc-700 hover:text-zinc-300"
-                        aria-label="Conversation options"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                      {isMenuOpen && (
-                        <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-lg">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMenuOpenId(null);
-                              setRenamingId(conversation.id);
-                              setRenameValue(conversation.title || '');
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Rename
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMenuOpenId(null);
-                              void handleDeleteConversation(conversation.id);
-                            }}
-                            disabled={deletingId === conversation.id}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            {deletingId === conversation.id
-                              ? 'Deleting...'
-                              : 'Delete'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteConversation(conversation.id);
+                      }}
+                      disabled={deletingId === conversation.id}
+                      className="text-xs text-zinc-500 transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={`Delete conversation ${conversation.title}`}
+                    >
+                      {deletingId === conversation.id ? '...' : '×'}
+                    </button>
                   </div>
                 );
               })
@@ -596,8 +414,12 @@ export default function ChatPage() {
         </aside>
         <div className="flex min-h-0 grow justify-center px-4 sm:px-6">
           <div className="flex h-full w-full max-w-3xl flex-col bg-zinc-900 text-zinc-100">
-            <section className="flex min-h-0 grow flex-col">
-              <div className="flex grow flex-col gap-3 overflow-y-auto p-6">
+            <section className="relative flex min-h-0 grow flex-col">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                className="flex grow flex-col gap-3 overflow-y-auto p-6"
+              >
                 {isLoadingConversation ? (
                   <div className="flex grow items-center justify-center text-sm text-zinc-300">
                     Loading conversation...
@@ -708,6 +530,18 @@ export default function ChatPage() {
                 )}
                 <div ref={bottomRef} />
               </div>
+
+              {/* Scroll to bottom button */}
+              {userHasScrolledUp && (
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-700 text-zinc-100 shadow-lg transition-all hover:bg-zinc-600 hover:scale-105"
+                  aria-label="Scroll to bottom"
+                >
+                  <ArrowDown className="h-5 w-5" />
+                </button>
+              )}
             </section>
 
             <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
