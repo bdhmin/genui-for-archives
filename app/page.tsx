@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Loader2,
   AlertCircle,
+  Square,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -118,6 +119,10 @@ export default function ChatPage() {
   const [taggingConversationIds, setTaggingConversationIds] = useState<
     Set<string>
   >(new Set());
+  // Pipeline stage indicators
+  const [pipelineStage, setPipelineStage] = useState<
+    'idle' | 'tagging' | 'synthesizing' | 'updating' | 'generating'
+  >('idle');
   const [showConversationTags, setShowConversationTags] = useState(false);
   const [conversationTagGroups, setConversationTagGroups] = useState<
     ConversationTagGroup[]
@@ -133,6 +138,8 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isProgrammaticScrollRef = useRef(false);
 
   // Check if scrolled to bottom (with small threshold)
   const isAtBottom = useCallback(() => {
@@ -145,8 +152,12 @@ export default function ChatPage() {
     );
   }, []);
 
-  // Handle user scroll
+  // Handle user scroll - ignore programmatic scrolls
   const handleScroll = useCallback(() => {
+    // Ignore scroll events triggered by programmatic scrolling
+    if (isProgrammaticScrollRef.current) {
+      return;
+    }
     if (isAtBottom()) {
       setUserHasScrolledUp(false);
     } else {
@@ -156,21 +167,43 @@ export default function ChatPage() {
 
   // Scroll to bottom function
   const scrollToBottom = useCallback(() => {
+    isProgrammaticScrollRef.current = true;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setUserHasScrolledUp(false);
+    setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, 100);
+  }, []);
+
+  // Stop generation function
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
   }, []);
 
   // Auto-scroll only when AI is generating and user hasn't scrolled up
   useEffect(() => {
     if (isLoading && !userHasScrolledUp) {
+      isProgrammaticScrollRef.current = true;
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      // Reset flag after scroll animation completes
+      setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, 100);
     }
   }, [messages, isLoading, userHasScrolledUp]);
 
   // Scroll to bottom when conversation loads
   useEffect(() => {
     if (!isLoadingConversation && messages.length > 0) {
+      isProgrammaticScrollRef.current = true;
       bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+      setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, 100);
     }
   }, [isLoadingConversation, messages.length]);
 
@@ -187,17 +220,22 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpenId]);
 
-  // Keyboard shortcut: Cmd+Shift+O to create new conversation
+  // Keyboard shortcuts: Cmd+Shift+O to create new conversation, Escape to stop generation
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         void handleCreateConversation();
       }
+      // Escape key to stop generation
+      if (e.key === 'Escape' && isLoading) {
+        e.preventDefault();
+        stopGeneration();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isLoading, stopGeneration]);
 
   const fetchConversations = useCallback(async () => {
     setIsListLoading(true);
@@ -334,6 +372,9 @@ export default function ChatPage() {
     const content = input.trim();
     if (!content || isLoading) return;
 
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController();
+
     setMessages((prev) => [...prev, { role: 'user', content }]);
     setInput('');
     setIsLoading(true);
@@ -345,6 +386,7 @@ export default function ChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationId, message: content }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok || !response.body) {
@@ -444,25 +486,53 @@ export default function ChatPage() {
         throw new Error('Missing conversation id in stream');
       }
 
-      // Mark conversation as being tagged
+      // Mark conversation as being tagged and track pipeline stages
       setTaggingConversationIds((prev) => new Set(prev).add(newConversationId));
+      setPipelineStage('tagging');
 
-      // Clear tagging status after ~10 seconds (approximate tagging time)
+      // Pipeline stage progression (approximate timings)
+      // Stage 1: Tagging (Round 1) - ~3 seconds
       setTimeout(() => {
+        setPipelineStage('synthesizing');
+      }, 3000);
+
+      // Stage 2: Synthesizing (Round 2) - ~5 seconds after tagging
+      setTimeout(() => {
+        setPipelineStage('updating');
+      }, 8000);
+
+      // Stage 3: Updating data - ~3 seconds
+      setTimeout(() => {
+        setPipelineStage('generating');
+      }, 11000);
+
+      // Stage 4: Generating UIs - ~5 seconds, then idle
+      setTimeout(() => {
+        setPipelineStage('idle');
         setTaggingConversationIds((prev) => {
           const next = new Set(prev);
           next.delete(newConversationId!);
           return next;
         });
-      }, 10000);
+        // Refresh widgets after pipeline completes
+        if (isDashboardOpen) {
+          void fetchWidgets();
+        }
+      }, 16000);
 
       void fetchConversations();
     } catch (err) {
+      // Don't show error if request was aborted (user stopped generation)
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Generation was stopped by user - no error to show
+        return;
+      }
       const message =
         err instanceof Error ? err.message : 'Something went wrong';
       setError(message);
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -651,14 +721,28 @@ export default function ChatPage() {
             <button
               type="button"
               onClick={() => setIsDashboardOpen(true)}
-              className={`flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all ${
+              className={`relative flex h-auto min-h-[40px] w-full flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-sm font-semibold transition-all ${
                 isDashboardOpen
                   ? 'bg-amber-600 text-white hover:bg-amber-500'
                   : 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:bg-zinc-600'
               }`}
             >
-              <LayoutDashboard className="h-4 w-4" />
-              <span>Generated UIs</span>
+              <div className="flex items-center gap-2">
+                <LayoutDashboard className="h-4 w-4" />
+                <span>Generated UIs</span>
+              </div>
+              {/* Pipeline stage indicator */}
+              {pipelineStage !== 'idle' && (
+                <div className="flex items-center gap-1.5 text-[10px] font-normal opacity-80">
+                  <span className="h-1 w-1 animate-pulse rounded-full bg-current" />
+                  <span>
+                    {pipelineStage === 'tagging' && 'Tagging...'}
+                    {pipelineStage === 'synthesizing' && 'Synthesizing...'}
+                    {pipelineStage === 'updating' && 'Updating Data...'}
+                    {pipelineStage === 'generating' && 'Generating UIs...'}
+                  </span>
+                </div>
+              )}
             </button>
             {/* New Conversation Button */}
             <button
@@ -1317,21 +1401,30 @@ export default function ChatPage() {
                         placeholder="Send a message..."
                         className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                       />
-                      <button
-                        type="submit"
-                        disabled={isLoading || !input.trim()}
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-                        aria-label="Send message"
-                      >
-                        {isLoading ? (
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-100" />
-                        ) : (
+                      {isLoading ? (
+                        <button
+                          type="button"
+                          onClick={stopGeneration}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
+                          aria-label="Stop generating"
+                        >
+                          <Square className="h-3.5 w-3.5 fill-current" />
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          disabled={!input.trim()}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                          aria-label="Send message"
+                        >
                           <Send className="h-4 w-4" />
-                        )}
-                      </button>
+                        </button>
+                      )}
                     </div>
                     <p className="mt-2 text-center text-xs text-zinc-500">
-                      Press Enter to send, Shift + Enter for new line
+                      {isLoading
+                        ? 'Press Escape or click stop to cancel'
+                        : 'Press Enter to send, Shift + Enter for new line'}
                     </p>
                   </form>
                 </div>

@@ -71,6 +71,15 @@ serve(async (req) => {
       )
       .join("\n\n");
 
+    // Fetch existing global tags to prevent duplicates
+    const { data: existingGlobalTags } = await supabase
+      .from("global_tags")
+      .select("id, tag");
+
+    const existingTagsList = (existingGlobalTags || [])
+      .map(t => `- "${t.tag}" (ID: ${t.id})`)
+      .join("\n");
+
     // Call OpenAI to cluster and generalize tags
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -83,32 +92,56 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a tag clustering and generalization expert. Your task is to analyze descriptive tags from multiple conversations and create higher-level, generalized tags that capture patterns across conversations.
+            content: `You are a tag clustering expert. Analyze conversation tags and categorize them into global tags.
 
-Guidelines:
-- Create short phrase tags (not full sentences)
-- Find common themes and patterns across different conversations
-- Each global tag should represent a category that multiple conversations might belong to
-- Include the conversation IDs that relate to each global tag
+You will receive:
+1. EXISTING global tags (if any) - these already have UI widgets built for them
+2. New conversation tags to categorize
 
-Example input tags:
-- "The user wants to know the calorie count of their meal..."
-- "The user is tracking their daily food intake..."
-- "The user asks about nutritional information..."
+YOUR TASK:
+For each conversation, determine which global tag(s) it belongs to.
 
-Example global tag:
-- "Calorie and nutrition tracking" (relates to conversations about food/calories)
+WHEN TO REUSE AN EXISTING TAG:
+- The conversation is about the SAME general topic (e.g., food/calories, workspace setup, purchases)
+- Even if the specific details differ, the category is the same
+- Use the EXACT text of the existing tag
 
-Respond with a JSON object containing a "global_tags" array, where each item has:
-- "tag": the higher-level tag phrase
-- "source_conversation_ids": array of conversation IDs that relate to this tag`,
+WHEN TO CREATE A NEW TAG:
+- The conversation covers a topic NOT represented by any existing tag
+- Examples of distinct categories that need separate tags:
+  - "Travel planning" vs "Meal planning" (different domains)
+  - "Code debugging" vs "Product research" (different activities)
+  - "Health tracking" vs "Financial budgeting" (different life areas)
+- New tags should be short phrases (3-6 words)
+- New tags should be general enough to apply to multiple conversations
+
+OUTPUT FORMAT:
+{
+  "global_tags": [
+    {
+      "tag": "Exact existing tag text OR new tag phrase",
+      "source_conversation_ids": ["conv-id-1", "conv-id-2"],
+      "is_new": false  // true only if creating a brand new category
+    }
+  ]
+}
+
+A conversation can belong to multiple tags if it spans multiple categories.
+
+Respond with valid JSON.`,
           },
           {
             role: "user",
-            content: `Analyze these conversation tags and generate higher-level pattern tags:\n\n${allTagsText}`,
+            content: `EXISTING GLOBAL TAGS:
+${existingTagsList || "(none - all tags will be new)"}
+
+CONVERSATION TAGS TO CATEGORIZE:
+${allTagsText}
+
+Categorize each conversation. Create new global tags for topics not covered by existing ones. Return your response as JSON.`,
           },
         ],
-        temperature: 0.7,
+        temperature: 0.4,
         response_format: { type: "json_object" },
       }),
     });

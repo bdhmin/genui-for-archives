@@ -102,7 +102,7 @@ class FileConversationStore implements ConversationStore {
   async listConversations(): Promise<ConversationListItem[]> {
     const conversations = await this.readAll();
     return conversations
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map(({ id, createdAt, updatedAt, title }) => ({
         id,
         createdAt,
@@ -238,13 +238,13 @@ class SupabaseConversationStore implements ConversationStore {
     ({ data, error } = await this.client
       .from("conversations")
       .select("id, created_at, updated_at, title")
-      .order("created_at", { ascending: false }));
+      .order("updated_at", { ascending: false }));
 
     if (error && this.isMissingTitleColumn(error)) {
       ({ data, error } = await this.client
         .from("conversations")
         .select("id, created_at, updated_at")
-        .order("created_at", { ascending: false }));
+        .order("updated_at", { ascending: false }));
     }
 
     if (error) {
