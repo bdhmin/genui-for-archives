@@ -203,18 +203,57 @@ Respond with a JSON object containing a "global_tags" array, where each item has
         )
       `);
 
-    // Trigger widget generation for all global tags (fire and forget)
-    // This will skip tags that already have active widgets
+    // Fetch existing widgets to determine which need generation vs update
+    const { data: existingWidgets } = await supabase
+      .from("ui_widgets")
+      .select("id, global_tag_id, status");
+
+    const widgetByGlobalTag = new Map<string, { id: string; status: string }>();
+    for (const w of existingWidgets || []) {
+      widgetByGlobalTag.set(w.global_tag_id, { id: w.id, status: w.status });
+    }
+
     const generateWidgetUrl = `${supabaseUrl}/functions/v1/generate-widget-ui`;
+    const updateWidgetDataUrl = `${supabaseUrl}/functions/v1/update-widget-data`;
+    
+    let widgetsToGenerate = 0;
+    let dataUpdatesTriggered = 0;
+
     for (const globalTag of allGlobalTags || []) {
-      fetch(generateWidgetUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${supabaseServiceKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ global_tag_id: globalTag.id }),
-      }).catch((err) => console.error(`Failed to trigger widget generation for ${globalTag.id}:`, err));
+      const existingWidget = widgetByGlobalTag.get(globalTag.id);
+      const conversationIds = globalTag.conversation_global_tags?.map(
+        (c: { conversation_id: string }) => c.conversation_id
+      ) || [];
+
+      if (existingWidget && existingWidget.status === "active") {
+        // Widget exists - trigger data update for each linked conversation
+        // The update function will skip conversations that already have data
+        for (const conversationId of conversationIds) {
+          fetch(updateWidgetDataUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${supabaseServiceKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ 
+              widget_id: existingWidget.id, 
+              conversation_id: conversationId 
+            }),
+          }).catch((err) => console.error(`Failed to trigger data update:`, err));
+          dataUpdatesTriggered++;
+        }
+      } else {
+        // No widget or widget is in error/generating state - trigger generation
+        fetch(generateWidgetUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${supabaseServiceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ global_tag_id: globalTag.id }),
+        }).catch((err) => console.error(`Failed to trigger widget generation for ${globalTag.id}:`, err));
+        widgetsToGenerate++;
+      }
     }
 
     return new Response(
@@ -223,7 +262,8 @@ Respond with a JSON object containing a "global_tags" array, where each item has
         globalTags: allGlobalTags,
         newTagsCount: insertedGlobalTags.length,
         mappingsCount: mappingsToInsert.length,
-        widgetGenerationTriggered: allGlobalTags?.length || 0,
+        widgetGenerationTriggered: widgetsToGenerate,
+        dataUpdatesTriggered: dataUpdatesTriggered,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

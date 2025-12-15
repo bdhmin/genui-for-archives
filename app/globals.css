@@ -79,3 +79,45 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Sandpack full height overrides */
+.sp-wrapper,
+.sp-custom-wrapper {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.sp-layout,
+.sp-custom-layout {
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 !important;
+}
+
+.sp-stack,
+.sp-custom-stack {
+  height: 100% !important;
+}
+
+.sp-preview-container {
+  height: 100% !important;
+}
+
+.sp-preview-iframe {
+  height: 100% !important;
+}
+
+/* Slide in from right animation */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(1rem);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.slide-in-from-right-4 {
+  animation-name: fade-in, slide-in-from-right;
+}

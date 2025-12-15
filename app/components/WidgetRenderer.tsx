@@ -56,7 +56,7 @@ function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-zinc-900 p-4">
+    <div style={{ fontFamily: "'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif" }} className="min-h-screen bg-zinc-900 p-6 antialiased text-zinc-100">
       <Widget data={data} onDataChange={handleDataChange} />
     </div>
   );
@@ -65,6 +65,7 @@ function App() {
 export default App;
 `;
 }
+
 
 export default function WidgetRenderer({
   widgetId,
@@ -118,7 +119,7 @@ export default function WidgetRenderer({
   }
 
   return (
-    <div className={`relative overflow-hidden rounded-lg ${className}`}>
+    <div className={`relative flex flex-col overflow-hidden ${className}`}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-800 z-10">
           <div className="flex flex-col items-center gap-3 text-zinc-400">
@@ -150,6 +151,34 @@ export default function WidgetRenderer({
         theme="dark"
         files={{
           '/App.js': wrapperCode,
+          '/styles.css': `
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&display=swap');
+
+* {
+  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+          `,
+          '/index.js': `
+import React, { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+import App from "./App";
+
+const root = createRoot(document.getElementById("root"));
+root.render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+);
+          `,
         }}
         customSetup={{
           dependencies: {
@@ -158,17 +187,17 @@ export default function WidgetRenderer({
           },
         }}
         options={{
+          externalResources: [
+            'https://cdn.tailwindcss.com',
+          ],
           classes: {
             'sp-wrapper': 'sp-custom-wrapper',
             'sp-layout': 'sp-custom-layout',
             'sp-stack': 'sp-custom-stack',
           },
-          externalResources: [
-            'https://cdn.tailwindcss.com',
-          ],
         }}
       >
-        <SandpackLayout>
+        <SandpackLayout className="!h-full !min-h-0">
           <SandpackPreview
             showOpenInCodeSandbox={false}
             showRefreshButton={false}
@@ -181,7 +210,7 @@ export default function WidgetRenderer({
                 <RefreshCw className="h-4 w-4" />
               </button>
             }
-            style={{ height: '400px', minHeight: '300px' }}
+            style={{ height: '100%', minHeight: '300px' }}
             onLoad={() => setIsLoading(false)}
           />
         </SandpackLayout>

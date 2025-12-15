@@ -214,20 +214,118 @@ CRITICAL - DATA EXTRACTION:
 - Be thorough - extract every relevant data point mentioned
 - Each item MUST have an "id", "date", and relevant fields for the data type
 
+=== DESIGN SYSTEM - FOLLOW THIS EXACTLY ===
+
+The widget MUST match this exact design system from the parent application:
+
+**COLOR PALETTE (zinc-based dark theme with amber accent):**
+- Background primary: bg-zinc-900 (#18181b)
+- Background elevated/cards: bg-zinc-800, bg-zinc-800/30, bg-zinc-800/50
+- Background sidebar/darker: bg-zinc-950
+- Hover states: bg-zinc-700, bg-zinc-700/50
+- Active/hover subtle: bg-zinc-600
+- Text primary: text-zinc-100, text-zinc-50 (#fafafa)
+- Text secondary: text-zinc-400
+- Text muted/placeholder: text-zinc-500
+- Accent/highlight: amber-500, amber-600 (use for active states, highlights, progress, important actions)
+- Error states: red-400, red-500
+- Borders: border-zinc-700, border-zinc-700/50, border-zinc-800
+
+**TYPOGRAPHY:**
+- Use clean, geometric sans-serif appearance (the parent uses Hanken Grotesk)
+- Text sizes: text-xs, text-sm, text-base, text-lg, text-xl, text-2xl
+- Font weights: font-medium, font-semibold, font-bold
+
+**COMPONENT PATTERNS:**
+- Cards: rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5
+- Buttons primary: rounded-lg bg-amber-600 text-white hover:bg-amber-500
+- Buttons secondary: rounded-lg bg-zinc-800 text-zinc-100 hover:bg-zinc-700
+- Buttons subtle: rounded-lg bg-zinc-700/50 text-zinc-300 hover:bg-zinc-600
+- Input fields: rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500
+- Tags/badges: rounded-lg bg-zinc-900/50 px-3 py-2 text-sm text-zinc-300
+- Accent dots/indicators: h-1.5 w-1.5 rounded-full bg-amber-500
+
+**BORDERS & SHADOWS:**
+- Subtle borders: border border-zinc-700/50
+- Highlighted borders: border-amber-500/30, ring-1 ring-amber-500/50
+- Shadows: shadow-lg shadow-zinc-900/50, shadow-sm
+
+**SPACING:**
+- Cards: p-5 or p-6
+- Gaps: gap-2, gap-3, gap-4, gap-6
+- Section padding: px-6 py-4, p-8
+
+**INTERACTIVE STATES:**
+- Hover transitions: transition-all duration-200, hover:scale-105
+- Loading spinners: animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500
+- Focus states: focus:ring-1 focus:ring-zinc-500 focus:outline-none
+
+**EMPTY STATES:**
+- Center content with flex items-center justify-center
+- Large muted icon (text-zinc-600 or text-zinc-700)
+- Title in text-zinc-300, description in text-zinc-500
+
+**SPECIFIC UI PATTERNS TO USE:**
+- Date groupings: Use section headers with text-sm font-medium text-zinc-400
+- List items: rounded-lg bg-zinc-900/50 p-3 with hover:bg-zinc-800
+- Inline actions: Small icon buttons with p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700
+- Form rows: flex items-center gap-3 with labels as text-sm text-zinc-400
+- Summary/total rows: bg-zinc-800/50 rounded-lg p-3 with font-semibold
+
+**CRITICAL STYLING RULES:**
+- ALWAYS use rounded corners: rounded-lg (8px) or rounded-xl (12px) - NEVER use sharp corners
+- ALWAYS use proper padding: p-3, p-4, p-5, p-6 for containers - NEVER skip padding
+- ALWAYS use gap utilities for spacing between items: gap-2, gap-3, gap-4
+- ALWAYS use proper margins between sections: mb-4, mb-6, mt-4, mt-6
+- ALWAYS apply border-radius to inputs, buttons, and cards
+- Use px-3 py-2 for button padding, px-4 py-3 for larger buttons
+- Font is already Hanken Grotesk from parent - just use font-sans if needed
+
+**FLAT DESIGN - MINIMAL BACKGROUNDS:**
+- Use ONE consistent background: bg-zinc-900 - DO NOT layer multiple backgrounds
+- Separate items with BORDERS (border-b border-zinc-800) or SPACING (gap, py) - NOT different background colors
+- Avoid nested cards with different background shades - keep it flat
+- Only use bg-zinc-800 sparingly for interactive elements like buttons or inputs
+- The overall look should be FLAT and CLEAN, not layered with multiple shades
+
+**EXAMPLE CODE PATTERNS - FOLLOW EXACTLY:**
+
+Main container (flat, no extra background):
+\`<div className="flex flex-col gap-4">\`
+
+List item row (use border for separation, NOT background):
+\`<div className="flex items-center justify-between py-4 border-b border-zinc-800 last:border-b-0">\`
+
+Date section header:
+\`<h3 className="text-sm font-medium text-zinc-400 pt-4 pb-2">December 15, 2025</h3>\`
+
+Primary button:
+\`<button className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 transition-colors">\`
+
+Secondary/subtle button:
+\`<button className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors">\`
+
+Input field:
+\`<input className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none" />\`
+
+Summary/total row (subtle, minimal):
+\`<div className="mt-4 pt-4 border-t border-zinc-700 flex justify-between items-center">\`
+
+Action links:
+\`<button className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">Edit</button>\`
+
 COMPONENT REQUIREMENTS:
 - Must be a single, self-contained React functional component
 - Create a TIMELINE or HISTORY view - show data chronologically
 - Group or display items by date
 - Use ONLY React hooks (useState, useEffect, useMemo, useCallback)
-- Use ONLY Tailwind CSS for styling
+- Use ONLY Tailwind CSS for styling - STRICTLY follow the design system above
 - Component receives props: { data, onDataChange }
 - data is an array matching your dataSchema
 - onDataChange(newData) should be called when user edits data
 - Include add, edit, and delete functionality
 - Show summaries/totals where appropriate (e.g., total calories per day)
-- Handle empty state gracefully
-- Use a dark theme (zinc-800, zinc-700, zinc-900 backgrounds with zinc-100 text)
-- Make it visually appealing with clear date groupings
+- Handle empty state gracefully with centered content and muted styling
 
 COMPONENT CODE FORMAT:
 - Start with: function Widget({ data, onDataChange }) {

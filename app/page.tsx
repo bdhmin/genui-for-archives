@@ -14,6 +14,7 @@ import remarkGfm from 'remark-gfm';
 import {
   Send,
   ArrowDown,
+  ArrowLeft,
   MoreHorizontal,
   Trash2,
   Pencil,
@@ -839,287 +840,290 @@ export default function ChatPage() {
           {isDashboardOpen ? (
             /* Dashboard View */
             <div className="flex h-full w-full flex-col bg-zinc-900 text-zinc-100 animate-in fade-in slide-in-from-left-4 duration-300">
-              {/* Dashboard Header */}
-              <div className="flex items-center justify-between border-b border-zinc-800 px-8 py-5">
-                <div>
-                  <h1 className="text-2xl font-bold text-zinc-50">
-                    {showConversationTags
-                      ? 'Conversation Tags'
-                      : 'Generated UIs'}
-                  </h1>
-                  <p className="text-sm text-zinc-400">
-                    {showConversationTags
-                      ? 'Tags generated from each conversation (Round 1)'
-                      : 'Auto-generated UIs from your conversations'}
-                  </p>
+              {/* Dashboard Header - Only show when not in detail view */}
+              {!selectedWidgetId && (
+                <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-8 py-5">
+                  <div>
+                    <h1 className="text-2xl font-bold text-zinc-50">
+                      {showConversationTags
+                        ? 'Conversation Tags'
+                        : 'Generated UIs'}
+                    </h1>
+                    <p className="text-sm text-zinc-400">
+                      {showConversationTags
+                        ? 'Tags generated from each conversation (Round 1)'
+                        : 'Auto-generated UIs from your conversations'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowConversationTags(!showConversationTags)
+                      }
+                      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                        showConversationTags
+                          ? 'bg-amber-600 text-white hover:bg-amber-500'
+                          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100'
+                      }`}
+                    >
+                      {showConversationTags
+                        ? 'Show Generated UIs'
+                        : 'See Conversation Tags'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeDashboard}
+                      className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                      aria-label="Close dashboard"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowConversationTags(!showConversationTags)
-                    }
-                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                      showConversationTags
-                        ? 'bg-amber-600 text-white hover:bg-amber-500'
-                        : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100'
-                    }`}
-                  >
-                    {showConversationTags
-                      ? 'Show Generated UIs'
-                      : 'See Conversation Tags'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeDashboard}
-                    className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
-                    aria-label="Close dashboard"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-              </div>
+              )}
 
               {/* Dashboard Content */}
-              <div className="flex-1 overflow-y-auto p-8">
+              <div className="flex flex-1 flex-col overflow-hidden">
                 {showConversationTags ? (
                   /* Conversation Tags View */
-                  isLoadingConversationTags ? (
-                    <div className="flex h-64 items-center justify-center">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />
+                  <div className="flex-1 overflow-y-auto p-8">
+                    {isLoadingConversationTags ? (
+                      <div className="flex h-64 items-center justify-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />
+                          <p className="text-sm text-zinc-400">
+                            Loading conversation tags...
+                          </p>
+                        </div>
+                      </div>
+                    ) : conversationTagGroups.length === 0 ? (
+                      <div className="flex h-64 flex-col items-center justify-center gap-4">
+                        <LayoutDashboard className="h-16 w-16 text-zinc-700" />
+                        <div className="text-center">
+                          <p className="text-lg font-medium text-zinc-300">
+                            No tags yet
+                          </p>
+                          <p className="text-sm text-zinc-500">
+                            Send messages in conversations to generate tags
+                            automatically
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-6">
                         <p className="text-sm text-zinc-400">
-                          Loading conversation tags...
+                          {conversationTagGroups.reduce(
+                            (acc, g) => acc + g.tags.length,
+                            0
+                          )}{' '}
+                          tags across {conversationTagGroups.length}{' '}
+                          conversations
                         </p>
+                        {conversationTagGroups.map((group) => (
+                          <div
+                            key={group.conversationId}
+                            className="rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5"
+                          >
+                            <h3 className="mb-3 font-medium text-zinc-200">
+                              {group.conversationTitle}
+                            </h3>
+                            <div className="flex flex-col gap-2">
+                              {group.tags.map((tag) => (
+                                <div
+                                  key={tag.id}
+                                  className="flex items-start gap-2 rounded-lg bg-zinc-900/50 p-3 text-sm"
+                                >
+                                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                                  <span className="text-zinc-300">
+                                    {tag.tag}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
+                    )}
+                  </div>
+                ) : selectedWidgetId ? (
+                  /* Detail View - Full screen widget */
+                  <div className="flex flex-1 flex-col overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
+                    {/* Header bar with back button and title */}
+                    <div className="flex shrink-0 items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedWidgetId(null);
+                          setHighlightedConversationIds([]);
+                        }}
+                        className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                      >
+                        <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                        <span>Back</span>
+                      </button>
+                      <div className="h-5 w-px bg-zinc-700" />
+                      <h2 className="text-sm font-medium text-zinc-100">
+                        {selectedWidgetDetail?.name ||
+                          widgets.find((w) => w.id === selectedWidgetId)
+                            ?.globalTag}
+                      </h2>
                     </div>
-                  ) : conversationTagGroups.length === 0 ? (
-                    <div className="flex h-64 flex-col items-center justify-center gap-4">
-                      <LayoutDashboard className="h-16 w-16 text-zinc-700" />
-                      <div className="text-center">
-                        <p className="text-lg font-medium text-zinc-300">
-                          No tags yet
-                        </p>
-                        <p className="text-sm text-zinc-500">
-                          Send messages in conversations to generate tags
-                          automatically
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-6">
-                      <p className="text-sm text-zinc-400">
-                        {conversationTagGroups.reduce(
-                          (acc, g) => acc + g.tags.length,
-                          0
-                        )}{' '}
-                        tags across {conversationTagGroups.length} conversations
-                      </p>
-                      {conversationTagGroups.map((group) => (
-                        <div
-                          key={group.conversationId}
-                          className="rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5"
-                        >
-                          <h3 className="mb-3 font-medium text-zinc-200">
-                            {group.conversationTitle}
-                          </h3>
-                          <div className="flex flex-col gap-2">
-                            {group.tags.map((tag) => (
-                              <div
-                                key={tag.id}
-                                className="flex items-start gap-2 rounded-lg bg-zinc-900/50 p-3 text-sm"
-                              >
-                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                                <span className="text-zinc-300">{tag.tag}</span>
-                              </div>
-                            ))}
+
+                    {/* Widget Content - Full screen below header */}
+                    <div className="relative flex-1 overflow-hidden">
+                      {isLoadingWidgetDetail ? (
+                        <div className="flex h-full items-center justify-center bg-zinc-900">
+                          <div className="flex flex-col items-center gap-3">
+                            <Loader2 className="h-10 w-10 animate-spin text-zinc-400" />
+                            <p className="text-sm text-zinc-400">
+                              Loading widget...
+                            </p>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )
-                ) : /* Widgets View */
-                isLoadingTags ? (
-                  <div className="flex h-64 items-center justify-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />
-                      <p className="text-sm text-zinc-400">
-                        Loading widgets...
-                      </p>
-                    </div>
-                  </div>
-                ) : widgets.length === 0 ? (
-                  <div className="flex h-64 flex-col items-center justify-center gap-4">
-                    <LayoutDashboard className="h-16 w-16 text-zinc-700" />
-                    <div className="text-center">
-                      <p className="text-lg font-medium text-zinc-300">
-                        No widgets yet
-                      </p>
-                      <p className="text-sm text-zinc-500">
-                        Start conversations to generate widgets automatically
-                      </p>
+                      ) : selectedWidgetDetail?.status === 'generating' ? (
+                        <div className="flex h-full items-center justify-center bg-zinc-900">
+                          <div className="flex flex-col items-center gap-4 text-center">
+                            <div className="relative">
+                              <div className="h-16 w-16 rounded-full border-4 border-zinc-700" />
+                              <div className="absolute inset-0 h-16 w-16 animate-spin rounded-full border-4 border-transparent border-t-amber-500" />
+                            </div>
+                            <div>
+                              <p className="text-lg font-medium text-zinc-300">
+                                Generating widget...
+                              </p>
+                              <p className="mt-1 text-sm text-zinc-500">
+                                This may take a moment
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : selectedWidgetDetail?.status === 'error' ? (
+                        <div className="flex h-full items-center justify-center bg-zinc-900">
+                          <div className="flex flex-col items-center gap-4 text-center px-6">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-900/20">
+                              <AlertCircle className="h-8 w-8 text-red-400" />
+                            </div>
+                            <div>
+                              <p className="text-lg font-medium text-red-300">
+                                Failed to generate widget
+                              </p>
+                              <p className="mt-2 max-w-md text-sm text-zinc-500">
+                                {selectedWidgetDetail.errorMessage ||
+                                  'An unknown error occurred while generating this widget'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : selectedWidgetDetail?.componentCode ? (
+                        <WidgetRenderer
+                          widgetId={selectedWidgetId}
+                          componentCode={selectedWidgetDetail.componentCode}
+                          dataItems={selectedWidgetData}
+                          onDataChange={handleWidgetDataChange}
+                          className="h-full w-full"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center bg-zinc-900">
+                          <div className="flex flex-col items-center gap-4 text-center">
+                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800">
+                              <LayoutDashboard className="h-8 w-8 text-zinc-600" />
+                            </div>
+                            <p className="text-sm text-zinc-500">
+                              No widget content available
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-6">
-                    {/* Selected Widget Expanded View */}
-                    {selectedWidgetId && (
-                      <div className="rounded-xl border border-amber-500/30 bg-zinc-800/50 p-6 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="mb-4 flex items-start justify-between">
-                          <div>
-                            <h2 className="text-xl font-semibold text-zinc-100">
-                              {selectedWidgetDetail?.name ||
-                                widgets.find((w) => w.id === selectedWidgetId)
-                                  ?.globalTag}
-                            </h2>
-                            <p className="text-sm text-zinc-400">
-                              {selectedWidgetDetail?.description ||
-                                `${
-                                  widgets.find((w) => w.id === selectedWidgetId)
-                                    ?.conversationIds.length ?? 0
-                                } source conversations`}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedWidgetId(null);
-                              setHighlightedConversationIds([]);
-                            }}
-                            className="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-700 hover:text-zinc-100"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
+                  /* Overview - Widget Grid */
+                  <div className="flex-1 overflow-y-auto p-8">
+                    {isLoadingTags ? (
+                      <div className="flex h-64 items-center justify-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />
+                          <p className="text-sm text-zinc-400">
+                            Loading widgets...
+                          </p>
                         </div>
-
-                        {/* Widget Content */}
-                        {isLoadingWidgetDetail ? (
-                          <div className="flex h-64 items-center justify-center">
-                            <div className="flex flex-col items-center gap-3">
-                              <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-                              <p className="text-sm text-zinc-400">
-                                Loading widget...
-                              </p>
+                      </div>
+                    ) : widgets.length === 0 ? (
+                      <div className="flex h-64 flex-col items-center justify-center gap-4">
+                        <LayoutDashboard className="h-16 w-16 text-zinc-700" />
+                        <div className="text-center">
+                          <p className="text-lg font-medium text-zinc-300">
+                            No widgets yet
+                          </p>
+                          <p className="text-sm text-zinc-500">
+                            Start conversations to generate widgets
+                            automatically
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {widgets.map((widget) => (
+                          <button
+                            key={widget.id}
+                            type="button"
+                            onClick={() => handleWidgetSelect(widget.id)}
+                            className={`group flex flex-col gap-4 rounded-xl border p-6 text-left transition-all duration-200 hover:shadow-xl hover:shadow-zinc-900/50 hover:-translate-y-0.5 ${
+                              widget.status === 'generating'
+                                ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
+                                : widget.status === 'error'
+                                ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
+                                : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div
+                                className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                                  widget.status === 'generating'
+                                    ? 'bg-amber-900/30 text-amber-500'
+                                    : widget.status === 'error'
+                                    ? 'bg-red-900/30 text-red-400'
+                                    : 'bg-zinc-700/50 text-amber-500'
+                                }`}
+                              >
+                                {widget.status === 'generating' ? (
+                                  <Loader2 className="h-6 w-6 animate-spin" />
+                                ) : widget.status === 'error' ? (
+                                  <AlertCircle className="h-6 w-6" />
+                                ) : (
+                                  <LayoutDashboard className="h-6 w-6" />
+                                )}
+                              </div>
+                              <ChevronRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
                             </div>
-                          </div>
-                        ) : selectedWidgetDetail?.status === 'generating' ? (
-                          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50">
-                            <div className="flex flex-col items-center gap-3 text-center">
-                              <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
-                              <div>
-                                <p className="text-sm text-zinc-300">
-                                  Generating widget...
+                            <div>
+                              <h4 className="text-lg font-medium text-zinc-200 line-clamp-2">
+                                {widget.name || widget.globalTag}
+                              </h4>
+                              <div className="mt-2 flex items-center gap-2">
+                                <p className="text-sm text-zinc-500">
+                                  {widget.conversationIds.length} conversation
+                                  {widget.conversationIds.length !== 1
+                                    ? 's'
+                                    : ''}
                                 </p>
-                                <p className="mt-1 text-xs text-zinc-500">
-                                  This may take a moment
-                                </p>
+                                {widget.status === 'generating' && (
+                                  <span className="text-sm text-amber-500">
+                                    Generating...
+                                  </span>
+                                )}
+                                {widget.status === 'error' && (
+                                  <span className="text-sm text-red-400">
+                                    Error
+                                  </span>
+                                )}
                               </div>
                             </div>
-                          </div>
-                        ) : selectedWidgetDetail?.status === 'error' ? (
-                          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-red-600/30 bg-red-900/10">
-                            <div className="flex flex-col items-center gap-3 text-center">
-                              <AlertCircle className="h-8 w-8 text-red-400" />
-                              <div>
-                                <p className="text-sm text-red-300">
-                                  Failed to generate widget
-                                </p>
-                                <p className="mt-1 text-xs text-zinc-500">
-                                  {selectedWidgetDetail.errorMessage ||
-                                    'Unknown error'}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ) : selectedWidgetDetail?.componentCode ? (
-                          <WidgetRenderer
-                            widgetId={selectedWidgetId}
-                            componentCode={selectedWidgetDetail.componentCode}
-                            dataItems={selectedWidgetData}
-                            onDataChange={handleWidgetDataChange}
-                            className="min-h-[400px]"
-                          />
-                        ) : (
-                          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50">
-                            <div className="flex flex-col items-center gap-3 text-center">
-                              <LayoutDashboard className="h-8 w-8 text-zinc-600" />
-                              <p className="text-sm text-zinc-500">
-                                No widget content available
-                              </p>
-                            </div>
-                          </div>
-                        )}
+                          </button>
+                        ))}
                       </div>
                     )}
-
-                    {/* Widget Grid */}
-                    <div>
-                      <h3 className="mb-4 text-sm font-medium text-zinc-400">
-                        {selectedWidgetId ? 'Other Widgets' : 'All Widgets'}
-                      </h3>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {widgets
-                          .filter((w) => w.id !== selectedWidgetId)
-                          .map((widget) => (
-                            <button
-                              key={widget.id}
-                              type="button"
-                              onClick={() => handleWidgetSelect(widget.id)}
-                              className={`group flex flex-col gap-3 rounded-xl border p-5 text-left transition-all duration-200 hover:shadow-lg hover:shadow-zinc-900/50 ${
-                                widget.status === 'generating'
-                                  ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
-                                  : widget.status === 'error'
-                                  ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
-                                  : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div
-                                  className={`flex h-10 w-10 items-center justify-center rounded-lg ${
-                                    widget.status === 'generating'
-                                      ? 'bg-amber-900/30 text-amber-500'
-                                      : widget.status === 'error'
-                                      ? 'bg-red-900/30 text-red-400'
-                                      : 'bg-zinc-700/50 text-amber-500'
-                                  }`}
-                                >
-                                  {widget.status === 'generating' ? (
-                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                  ) : widget.status === 'error' ? (
-                                    <AlertCircle className="h-5 w-5" />
-                                  ) : (
-                                    <LayoutDashboard className="h-5 w-5" />
-                                  )}
-                                </div>
-                                <ChevronRight className="h-4 w-4 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
-                              </div>
-                              <div>
-                                <h4 className="font-medium text-zinc-200 line-clamp-2">
-                                  {widget.name || widget.globalTag}
-                                </h4>
-                                <div className="mt-1 flex items-center gap-2">
-                                  <p className="text-xs text-zinc-500">
-                                    {widget.conversationIds.length} conversation
-                                    {widget.conversationIds.length !== 1
-                                      ? 's'
-                                      : ''}
-                                  </p>
-                                  {widget.status === 'generating' && (
-                                    <span className="text-xs text-amber-500">
-                                      Generating...
-                                    </span>
-                                  )}
-                                  {widget.status === 'error' && (
-                                    <span className="text-xs text-red-400">
-                                      Error
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                      </div>
-                    </div>
                   </div>
                 )}
               </div>
