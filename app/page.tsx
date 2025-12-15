@@ -26,6 +26,7 @@ import {
   Square,
   Plus,
   GripVertical,
+  Maximize2,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -150,6 +151,18 @@ export default function ChatPage() {
   const [processingDropWidgetId, setProcessingDropWidgetId] = useState<
     string | null
   >(null);
+  // Widget edit mode state
+  const [widgetEditMode, setWidgetEditMode] = useState(false);
+  const [widgetEditMessages, setWidgetEditMessages] = useState<ChatMessage[]>(
+    []
+  );
+  const [widgetConversationId, setWidgetConversationId] = useState<
+    string | null
+  >(null);
+  const [widgetEditInput, setWidgetEditInput] = useState('');
+  const [isWidgetEditLoading, setIsWidgetEditLoading] = useState(false);
+  const widgetEditAbortRef = useRef<AbortController | null>(null);
+  const widgetEditBottomRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -277,27 +290,64 @@ export default function ChatPage() {
     void fetchConversations();
   }, [fetchConversations]);
 
-  const loadConversation = useCallback(async (id: string) => {
-    setIsLoadingConversation(true);
-    setError(null);
-    setUserHasScrolledUp(false);
+  // Fetch widget detail when a widget is selected
+  const fetchWidgetDetail = useCallback(async (widgetId: string) => {
+    setIsLoadingWidgetDetail(true);
     try {
-      const res = await fetch(`/api/conversations/${id}`);
+      const res = await fetch(`/api/widgets/${widgetId}`);
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load conversation');
+        throw new Error('Failed to load widget details');
       }
-      const conversation = await res.json();
-      setConversationId(conversation.id);
-      setMessages(conversation.messages ?? []);
+      const data = await res.json();
+      setSelectedWidgetDetail(data.widget);
+      setSelectedWidgetData(data.dataItems ?? []);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to load conversation';
-      setError(message);
+      console.error('Failed to fetch widget detail:', err);
+      setSelectedWidgetDetail(null);
+      setSelectedWidgetData([]);
     } finally {
-      setIsLoadingConversation(false);
+      setIsLoadingWidgetDetail(false);
     }
   }, []);
+
+  const loadConversation = useCallback(
+    async (id: string) => {
+      setIsLoadingConversation(true);
+      setError(null);
+      setUserHasScrolledUp(false);
+      try {
+        const res = await fetch(`/api/conversations/${id}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to load conversation');
+        }
+        const conversation = await res.json();
+
+        // Check if this is a widget-editing conversation
+        if (conversation.widgetId) {
+          // Open widget edit view
+          setIsDashboardOpen(true);
+          setSelectedWidgetId(conversation.widgetId);
+          setWidgetEditMode(true);
+          setWidgetConversationId(conversation.id);
+          setWidgetEditMessages(conversation.messages ?? []);
+          // Load widget details
+          void fetchWidgetDetail(conversation.widgetId);
+        } else {
+          // Regular conversation
+          setConversationId(conversation.id);
+          setMessages(conversation.messages ?? []);
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to load conversation';
+        setError(message);
+      } finally {
+        setIsLoadingConversation(false);
+      }
+    },
+    [fetchWidgetDetail]
+  );
 
   const handleCreateConversation = async () => {
     setIsCreating(true);
@@ -563,6 +613,190 @@ export default function ChatPage() {
     }
   };
 
+  // Widget edit mode handlers
+  const sendWidgetEditMessage = async () => {
+    const content = widgetEditInput.trim();
+    if (!content || isWidgetEditLoading || !selectedWidgetId) return;
+
+    // Create new abort controller for this request
+    widgetEditAbortRef.current = new AbortController();
+
+    // Add user message
+    setWidgetEditMessages((prev) => [
+      ...prev,
+      { role: 'user', content, createdAt: new Date().toISOString() },
+    ]);
+    setWidgetEditInput('');
+    setIsWidgetEditLoading(true);
+    setWidgetEditMode(true);
+
+    try {
+      const response = await fetch(`/api/widgets/${selectedWidgetId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: widgetConversationId,
+          message: content,
+        }),
+        signal: widgetEditAbortRef.current.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      let assistantContent = '';
+      let currentConversationId = widgetConversationId;
+
+      // Insert placeholder assistant message
+      setWidgetEditMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: '', createdAt: new Date().toISOString() },
+      ]);
+
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const lines = part.split('\n');
+          let event = '';
+          let data = '';
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              event = line.replace('event:', '').trim();
+            } else if (line.startsWith('data:')) {
+              data = line.replace('data:', '').trim();
+            }
+          }
+
+          if (event === 'meta') {
+            const meta = JSON.parse(data) as {
+              conversationId: string;
+              widgetId: string;
+            };
+            currentConversationId = meta.conversationId;
+            setWidgetConversationId(meta.conversationId);
+            // Add conversation to sidebar if it's new
+            setConversations((prev) => {
+              const exists = prev.some((c) => c.id === meta.conversationId);
+              if (exists) return prev;
+              const now = new Date().toISOString();
+              const widgetName =
+                selectedWidgetDetail?.name ||
+                widgets.find((w) => w.id === selectedWidgetId)?.name ||
+                'Widget';
+              return [
+                {
+                  id: meta.conversationId,
+                  title: `Editing: ${widgetName}`,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                ...prev,
+              ];
+            });
+          } else if (event === 'token') {
+            const token = JSON.parse(data) as string;
+            assistantContent += token;
+            setWidgetEditMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = {
+                role: 'assistant',
+                content: assistantContent,
+                createdAt: new Date().toISOString(),
+              };
+              return next;
+            });
+          } else if (event === 'code_updated') {
+            // Refresh widget detail to get new code
+            await fetchWidgetDetail(selectedWidgetId);
+          } else if (event === 'title') {
+            // Update conversation title in sidebar
+            const title = JSON.parse(data) as string;
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === currentConversationId ? { ...c, title } : c
+              )
+            );
+          } else if (event === 'error') {
+            const message = JSON.parse(data) as string;
+            throw new Error(message);
+          }
+        }
+      }
+
+      // Ensure final content is set
+      if (assistantContent) {
+        setWidgetEditMessages((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = {
+            role: 'assistant',
+            content: assistantContent,
+            createdAt: new Date().toISOString(),
+          };
+          return next;
+        });
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+      const message =
+        err instanceof Error ? err.message : 'Something went wrong';
+      setError(message);
+    } finally {
+      setIsWidgetEditLoading(false);
+      widgetEditAbortRef.current = null;
+    }
+  };
+
+  const handleWidgetEditSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    void sendWidgetEditMessage();
+  };
+
+  const handleWidgetEditKeyDown = (
+    event: KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void sendWidgetEditMessage();
+    }
+  };
+
+  const stopWidgetEditGeneration = useCallback(() => {
+    if (widgetEditAbortRef.current) {
+      widgetEditAbortRef.current.abort();
+      widgetEditAbortRef.current = null;
+    }
+    setIsWidgetEditLoading(false);
+  }, []);
+
+  const closeWidgetEditMode = useCallback(() => {
+    setWidgetEditMode(false);
+    // Keep messages so user can continue editing later
+  }, []);
+
+  // Reset widget edit state when widget selection changes
+  useEffect(() => {
+    if (!selectedWidgetId) {
+      setWidgetEditMode(false);
+      setWidgetEditMessages([]);
+      setWidgetConversationId(null);
+      setWidgetEditInput('');
+    }
+  }, [selectedWidgetId]);
+
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleString(undefined, {
       month: 'short',
@@ -608,26 +842,6 @@ export default function ChatPage() {
       }
     } finally {
       setIsLoadingTags(false);
-    }
-  }, []);
-
-  // Fetch widget detail when a widget is selected
-  const fetchWidgetDetail = useCallback(async (widgetId: string) => {
-    setIsLoadingWidgetDetail(true);
-    try {
-      const res = await fetch(`/api/widgets/${widgetId}`);
-      if (!res.ok) {
-        throw new Error('Failed to load widget details');
-      }
-      const data = await res.json();
-      setSelectedWidgetDetail(data.widget);
-      setSelectedWidgetData(data.dataItems ?? []);
-    } catch (err) {
-      console.error('Failed to fetch widget detail:', err);
-      setSelectedWidgetDetail(null);
-      setSelectedWidgetData([]);
-    } finally {
-      setIsLoadingWidgetDetail(false);
     }
   }, []);
 
@@ -1299,7 +1513,7 @@ export default function ChatPage() {
                   </div>
                 ) : selectedWidgetId ? (
                   /* Detail View - Full screen widget */
-                  <div className="flex flex-1 flex-col overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="flex flex-1 flex-col overflow-hidden bg-zinc-900 animate-in fade-in duration-200">
                     {/* Header bar with back button and title */}
                     <div
                       className={`flex shrink-0 items-center gap-4 border-b px-4 py-3 transition-colors ${
@@ -1349,71 +1563,387 @@ export default function ChatPage() {
                       )}
                     </div>
 
-                    {/* Widget Content - Full screen below header */}
-                    <div className="relative flex-1 overflow-hidden">
-                      {isLoadingWidgetDetail ? (
-                        <div className="flex h-full items-center justify-center bg-zinc-900">
-                          <div className="flex flex-col items-center gap-3">
-                            <Loader2 className="h-10 w-10 animate-spin text-zinc-400" />
-                            <p className="text-sm text-zinc-400">
-                              Loading widget...
-                            </p>
-                          </div>
+                    {/* Widget Content - Fullscreen or vertical layout when editing */}
+                    <div
+                      style={{
+                        transition:
+                          'padding 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+                      }}
+                      className={`flex min-h-0 grow bg-zinc-900 justify-center ${
+                        widgetEditMode ? 'px-4 sm:px-6' : 'px-0'
+                      }`}
+                    >
+                      <div
+                        style={{
+                          transition:
+                            'max-width 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+                        }}
+                        className={`flex h-full flex-col bg-zinc-900 text-zinc-100 w-full ${
+                          widgetEditMode ? 'max-w-3xl' : 'max-w-none'
+                        }`}
+                      >
+                        {/* Widget Preview - fullscreen normally, floats on top when editing */}
+                        <div
+                          style={{
+                            transition:
+                              'all 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+                          }}
+                          className={`relative bg-zinc-900 overflow-hidden ${
+                            widgetEditMode
+                              ? 'm-4 h-[40%] shrink-0 rounded-2xl border border-zinc-700 shadow-2xl shadow-black/50'
+                              : 'm-0 h-full w-full rounded-none border-transparent shadow-none'
+                          }`}
+                        >
+                          {/* Fullscreen button when in edit mode */}
+                          {widgetEditMode && (
+                            <button
+                              type="button"
+                              onClick={closeWidgetEditMode}
+                              className="absolute right-3 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80 text-zinc-400 backdrop-blur-sm transition-all hover:bg-zinc-700 hover:text-zinc-100 hover:scale-105"
+                              aria-label="Fullscreen"
+                              title="Exit to fullscreen"
+                            >
+                              <Maximize2 className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          {/* Floating input when NOT in edit mode */}
+                          {!widgetEditMode &&
+                            selectedWidgetDetail?.componentCode && (
+                              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6 sm:px-6">
+                                <div className="pointer-events-auto w-full max-w-3xl">
+                                  <form onSubmit={handleWidgetEditSubmit}>
+                                    <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/95 py-2 pl-4 pr-2 shadow-xl shadow-black/40 backdrop-blur-sm transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                                      <textarea
+                                        ref={(el) => {
+                                          if (el) {
+                                            el.style.height = 'auto';
+                                            el.style.height = `${Math.min(
+                                              el.scrollHeight,
+                                              200
+                                            )}px`;
+                                          }
+                                        }}
+                                        value={widgetEditInput}
+                                        onChange={(e) => {
+                                          setWidgetEditInput(e.target.value);
+                                          const target = e.target;
+                                          target.style.height = 'auto';
+                                          target.style.height = `${Math.min(
+                                            target.scrollHeight,
+                                            200
+                                          )}px`;
+                                        }}
+                                        onKeyDown={handleWidgetEditKeyDown}
+                                        rows={1}
+                                        placeholder="Ask to change this UI..."
+                                        className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                                      />
+                                      {isWidgetEditLoading ? (
+                                        <button
+                                          type="button"
+                                          onClick={stopWidgetEditGeneration}
+                                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
+                                          aria-label="Stop generating"
+                                        >
+                                          <Square className="h-3.5 w-3.5 fill-current" />
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="submit"
+                                          disabled={!widgetEditInput.trim()}
+                                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                                          aria-label="Send message"
+                                        >
+                                          <Send className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    <p className="mt-2 text-center text-xs text-zinc-500">
+                                      {isWidgetEditLoading
+                                        ? 'Press Escape or click stop to cancel'
+                                        : 'Press Enter to send, Shift + Enter for new line'}
+                                    </p>
+                                  </form>
+                                </div>
+                              </div>
+                            )}
+
+                          {isLoadingWidgetDetail ? (
+                            <div className="flex h-full items-center justify-center bg-zinc-900">
+                              <div className="flex flex-col items-center gap-3">
+                                <Loader2 className="h-10 w-10 animate-spin text-zinc-400" />
+                                <p className="text-sm text-zinc-400">
+                                  Loading widget...
+                                </p>
+                              </div>
+                            </div>
+                          ) : selectedWidgetDetail?.status === 'generating' ? (
+                            <div className="flex h-full items-center justify-center bg-zinc-900">
+                              <div className="flex flex-col items-center gap-4 text-center">
+                                <div className="relative">
+                                  <div className="h-16 w-16 rounded-full border-4 border-zinc-700" />
+                                  <div className="absolute inset-0 h-16 w-16 animate-spin rounded-full border-4 border-transparent border-t-amber-500" />
+                                </div>
+                                <div>
+                                  <p className="text-lg font-medium text-zinc-300">
+                                    Generating widget...
+                                  </p>
+                                  <p className="mt-1 text-sm text-zinc-500">
+                                    This may take a moment
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : selectedWidgetDetail?.status === 'error' ? (
+                            <div className="flex h-full items-center justify-center bg-zinc-900">
+                              <div className="flex flex-col items-center gap-4 text-center px-6">
+                                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-900/20">
+                                  <AlertCircle className="h-8 w-8 text-red-400" />
+                                </div>
+                                <div>
+                                  <p className="text-lg font-medium text-red-300">
+                                    Failed to generate widget
+                                  </p>
+                                  <p className="mt-2 max-w-md text-sm text-zinc-500">
+                                    {selectedWidgetDetail.errorMessage ||
+                                      'An unknown error occurred while generating this widget'}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : selectedWidgetDetail?.componentCode ? (
+                            <WidgetRenderer
+                              widgetId={selectedWidgetId}
+                              componentCode={selectedWidgetDetail.componentCode}
+                              dataItems={selectedWidgetData}
+                              onDataChange={handleWidgetDataChange}
+                              className="h-full w-full"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center bg-zinc-900">
+                              <div className="flex flex-col items-center gap-4 text-center">
+                                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800">
+                                  <LayoutDashboard className="h-8 w-8 text-zinc-600" />
+                                </div>
+                                <p className="text-sm text-zinc-500">
+                                  No widget content available
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      ) : selectedWidgetDetail?.status === 'generating' ? (
-                        <div className="flex h-full items-center justify-center bg-zinc-900">
-                          <div className="flex flex-col items-center gap-4 text-center">
-                            <div className="relative">
-                              <div className="h-16 w-16 rounded-full border-4 border-zinc-700" />
-                              <div className="absolute inset-0 h-16 w-16 animate-spin rounded-full border-4 border-transparent border-t-amber-500" />
+
+                        {/* Conversation Panel - appears below widget when editing */}
+                        {widgetEditMode && (
+                          <section className="relative flex min-h-0 grow flex-col animate-in fade-in slide-in-from-bottom-4 duration-300">
+                            <div className="flex grow flex-col gap-3 overflow-y-auto p-6">
+                              {widgetEditMessages.length === 0 ? (
+                                <div className="flex grow items-center justify-center text-sm text-zinc-300">
+                                  Ask to make changes to the UI above.
+                                </div>
+                              ) : (
+                                widgetEditMessages.map((msg, idx) => (
+                                  <article
+                                    key={idx}
+                                    className={`flex ${
+                                      msg.role === 'user'
+                                        ? 'justify-end'
+                                        : 'justify-start'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`text-base leading-7 ${
+                                        msg.role === 'user'
+                                          ? 'max-w-[80%] rounded-2xl bg-zinc-700 px-4 py-3 text-zinc-100'
+                                          : 'w-full px-2 py-2 text-zinc-100'
+                                      }`}
+                                    >
+                                      <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        className="max-w-none break-words"
+                                        components={{
+                                          h1: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <h1 className="mt-8 mb-4 text-2xl font-bold first:mt-0">
+                                              {children}
+                                            </h1>
+                                          ),
+                                          h2: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <h2 className="mt-8 mb-4 text-xl font-bold first:mt-0">
+                                              {children}
+                                            </h2>
+                                          ),
+                                          h3: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <h3 className="mt-6 mb-3 text-lg font-bold first:mt-0">
+                                              {children}
+                                            </h3>
+                                          ),
+                                          p: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <p className="my-4 first:mt-0 last:mb-0">
+                                              {children}
+                                            </p>
+                                          ),
+                                          ul: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <ul className="mt-4 mb-2 list-disc pl-6">
+                                              {children}
+                                            </ul>
+                                          ),
+                                          ol: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <ol className="mt-4 mb-2 list-decimal pl-6">
+                                              {children}
+                                            </ol>
+                                          ),
+                                          li: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <li className="my-1">{children}</li>
+                                          ),
+                                          blockquote: ({
+                                            children,
+                                          }: {
+                                            children?: ReactNode;
+                                          }) => (
+                                            <blockquote className="my-4 border-l-4 border-zinc-600 pl-4 italic">
+                                              {children}
+                                            </blockquote>
+                                          ),
+                                          hr: () => (
+                                            <hr className="my-6 border-zinc-700" />
+                                          ),
+                                          code({
+                                            inline,
+                                            className,
+                                            children,
+                                            ...props
+                                          }: {
+                                            inline?: boolean;
+                                            className?: string;
+                                            children?: ReactNode;
+                                          }) {
+                                            if (inline) {
+                                              return (
+                                                <code
+                                                  className="rounded bg-zinc-600 px-1.5 py-0.5 text-sm"
+                                                  {...props}
+                                                >
+                                                  {children}
+                                                </code>
+                                              );
+                                            }
+                                            return (
+                                              <pre className="my-4 overflow-auto rounded-lg bg-zinc-800 p-4 text-sm text-zinc-100">
+                                                <code
+                                                  {...props}
+                                                  className={className}
+                                                >
+                                                  {children}
+                                                </code>
+                                              </pre>
+                                            );
+                                          },
+                                        }}
+                                      >
+                                        {msg.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                  </article>
+                                ))
+                              )}
+                              <div ref={widgetEditBottomRef} />
                             </div>
-                            <div>
-                              <p className="text-lg font-medium text-zinc-300">
-                                Generating widget...
+                          </section>
+                        )}
+
+                        {/* Input box at bottom - same as main chat */}
+                        {widgetEditMode && (
+                          <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
+                            {error ? (
+                              <div className="mb-3 text-sm text-red-200">
+                                {error}
+                              </div>
+                            ) : null}
+                            <form onSubmit={handleWidgetEditSubmit}>
+                              <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-4 pr-2 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                                <textarea
+                                  ref={(el) => {
+                                    if (el) {
+                                      el.style.height = 'auto';
+                                      el.style.height = `${Math.min(
+                                        el.scrollHeight,
+                                        200
+                                      )}px`;
+                                    }
+                                  }}
+                                  value={widgetEditInput}
+                                  onChange={(e) => {
+                                    setWidgetEditInput(e.target.value);
+                                    const target = e.target;
+                                    target.style.height = 'auto';
+                                    target.style.height = `${Math.min(
+                                      target.scrollHeight,
+                                      200
+                                    )}px`;
+                                  }}
+                                  onKeyDown={handleWidgetEditKeyDown}
+                                  rows={1}
+                                  placeholder="Ask to change this UI..."
+                                  className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                                />
+                                {isWidgetEditLoading ? (
+                                  <button
+                                    type="button"
+                                    onClick={stopWidgetEditGeneration}
+                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
+                                    aria-label="Stop generating"
+                                  >
+                                    <Square className="h-3.5 w-3.5 fill-current" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="submit"
+                                    disabled={!widgetEditInput.trim()}
+                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                                    aria-label="Send message"
+                                  >
+                                    <Send className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+                              <p className="mt-2 text-center text-xs text-zinc-500">
+                                {isWidgetEditLoading
+                                  ? 'Press Escape or click stop to cancel'
+                                  : 'Press Enter to send, Shift + Enter for new line'}
                               </p>
-                              <p className="mt-1 text-sm text-zinc-500">
-                                This may take a moment
-                              </p>
-                            </div>
+                            </form>
                           </div>
-                        </div>
-                      ) : selectedWidgetDetail?.status === 'error' ? (
-                        <div className="flex h-full items-center justify-center bg-zinc-900">
-                          <div className="flex flex-col items-center gap-4 text-center px-6">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-900/20">
-                              <AlertCircle className="h-8 w-8 text-red-400" />
-                            </div>
-                            <div>
-                              <p className="text-lg font-medium text-red-300">
-                                Failed to generate widget
-                              </p>
-                              <p className="mt-2 max-w-md text-sm text-zinc-500">
-                                {selectedWidgetDetail.errorMessage ||
-                                  'An unknown error occurred while generating this widget'}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : selectedWidgetDetail?.componentCode ? (
-                        <WidgetRenderer
-                          widgetId={selectedWidgetId}
-                          componentCode={selectedWidgetDetail.componentCode}
-                          dataItems={selectedWidgetData}
-                          onDataChange={handleWidgetDataChange}
-                          className="h-full w-full"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center bg-zinc-900">
-                          <div className="flex flex-col items-center gap-4 text-center">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800">
-                              <LayoutDashboard className="h-8 w-8 text-zinc-600" />
-                            </div>
-                            <p className="text-sm text-zinc-500">
-                              No widget content available
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                 ) : (

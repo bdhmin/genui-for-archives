@@ -17,6 +17,7 @@ export type Conversation = {
   updatedAt: string;
   title: string;
   messages: ChatMessage[];
+  widgetId?: string | null;
 };
 
 export type ConversationListItem = {
@@ -27,8 +28,9 @@ export type ConversationListItem = {
 };
 
 export interface ConversationStore {
-  createConversation(): Promise<Conversation>;
+  createConversation(options?: { widgetId?: string }): Promise<Conversation>;
   getConversation(id: string): Promise<Conversation | null>;
+  getConversationByWidgetId(widgetId: string): Promise<Conversation | null>;
   listConversations(): Promise<ConversationListItem[]>;
   appendMessage(id: string, message: ChatMessage): Promise<Conversation | null>;
   setTitle(id: string, title: string): Promise<Conversation | null>;
@@ -44,6 +46,7 @@ class FileConversationStore implements ConversationStore {
       title: conversation.title ?? "New conversation",
       updatedAt: conversation.updatedAt ?? conversation.createdAt,
       messages: conversation.messages ?? [],
+      widgetId: conversation.widgetId ?? null,
     };
   }
 
@@ -72,7 +75,7 @@ class FileConversationStore implements ConversationStore {
     );
   }
 
-  async createConversation(): Promise<Conversation> {
+  async createConversation(options?: { widgetId?: string }): Promise<Conversation> {
     const now = new Date().toISOString();
     const conversation: Conversation = {
       id: randomUUID(),
@@ -80,6 +83,7 @@ class FileConversationStore implements ConversationStore {
       updatedAt: now,
       title: "New conversation",
       messages: [],
+      widgetId: options?.widgetId ?? null,
     };
 
     const conversations = await this.readAll();
@@ -97,6 +101,11 @@ class FileConversationStore implements ConversationStore {
     fetch('http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H5',location:'lib/conversationStore.ts:File:getConversation:resolved',message:'file store resolved conversation',data:{id,found:!!conversations.find((c)=>c.id===id)},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
     return conversations.find((c) => c.id === id) ?? null;
+  }
+
+  async getConversationByWidgetId(widgetId: string): Promise<Conversation | null> {
+    const conversations = await this.readAll();
+    return conversations.find((c) => c.widgetId === widgetId) ?? null;
   }
 
   async listConversations(): Promise<ConversationListItem[]> {
@@ -168,6 +177,7 @@ class SupabaseConversationStore implements ConversationStore {
       updatedAt: new Date(row.updated_at).toISOString(),
       title: row.title ?? "New conversation",
       messages: messages ?? [],
+      widgetId: row.widget_id ?? null,
     };
   }
 
@@ -179,18 +189,28 @@ class SupabaseConversationStore implements ConversationStore {
     };
   }
 
-  async createConversation(): Promise<Conversation> {
+  async createConversation(options?: { widgetId?: string }): Promise<Conversation> {
     let data, error;
+    const insertData: { title: string; widget_id?: string } = { title: "New conversation" };
+    if (options?.widgetId) {
+      insertData.widget_id = options.widgetId;
+    }
+
     ({ data, error } = await this.client
       .from("conversations")
-      .insert({ title: "New conversation" })
+      .insert(insertData)
       .select()
       .single());
 
     if (error && this.isMissingTitleColumn(error)) {
+      // Fallback without title column (for older schemas)
+      const fallbackData: { widget_id?: string } = {};
+      if (options?.widgetId) {
+        fallbackData.widget_id = options.widgetId;
+      }
       ({ data, error } = await this.client
         .from("conversations")
-        .insert({})
+        .insert(fallbackData)
         .select()
         .single());
     }
@@ -229,6 +249,33 @@ class SupabaseConversationStore implements ConversationStore {
     // #region agent log
     fetch('http://127.0.0.1:7243/ingest/b72aacd3-270e-4da7-85dc-2bd1f75d46d8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'run2',hypothesisId:'H6',location:'lib/conversationStore.ts:Supabase:getConversation:result',message:'supabase get result run2',data:{id,convoFound:!!convo,messageCount:(rows ?? []).length,convoError:!!convoError,msgError:!!msgError},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
+    const messages = (rows ?? []).map((row) => this.mapMessage(row));
+    return this.mapConversation(convo, messages);
+  }
+
+  async getConversationByWidgetId(widgetId: string): Promise<Conversation | null> {
+    const { data: convo, error: convoError } = await this.client
+      .from("conversations")
+      .select("*")
+      .eq("widget_id", widgetId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (convoError || !convo) {
+      return null;
+    }
+
+    const { data: rows, error: msgError } = await this.client
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", convo.id)
+      .order("created_at", { ascending: true });
+
+    if (msgError) {
+      throw new Error(msgError.message);
+    }
+
     const messages = (rows ?? []).map((row) => this.mapMessage(row));
     return this.mapConversation(convo, messages);
   }

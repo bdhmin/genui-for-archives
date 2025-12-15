@@ -183,7 +183,7 @@ export default function WidgetRenderer({
   }
 
   return (
-    <div className={`relative flex flex-col overflow-hidden ${className}`}>
+    <div className={`relative flex flex-col overflow-hidden bg-zinc-900 ${className}`}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-800 z-10">
           <div className="flex flex-col items-center gap-3 text-zinc-400">
