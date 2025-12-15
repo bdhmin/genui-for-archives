@@ -1,63 +1,148 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from 'react';
+
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export default function ChatPage() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    const content = input.trim();
+    if (!content || isLoading) return;
+
+    setMessages((prev) => [...prev, { role: 'user', content }]);
+    setInput('');
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, message: content }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to send message');
+      }
+
+      const data = (await response.json()) as {
+        conversationId: string;
+        message: ChatMessage;
+      };
+
+      setConversationId(data.conversationId);
+      setMessages((prev) => [...prev, data.message]);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Something went wrong';
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    void sendMessage();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage();
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex min-h-screen w-full flex-col bg-zinc-100 text-zinc-900">
+      <header className="border-b border-zinc-200 bg-white/90 px-6 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-zinc-900">Chat UI</h1>
+            <p className="text-sm text-zinc-500">
+              File-backed history, ready to swap to Supabase later.
+            </p>
+          </div>
+          {conversationId ? (
+            <span className="text-xs font-mono text-zinc-500">
+              Conversation: {conversationId.slice(0, 8)}
+            </span>
+          ) : null}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      </header>
+
+      <main className="flex grow justify-center px-4 py-6">
+        <div className="flex w-full max-w-5xl flex-col gap-4">
+          <section className="flex grow flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="flex grow flex-col gap-3 overflow-y-auto rounded-xl bg-zinc-50 p-4">
+              {messages.length === 0 ? (
+                <div className="flex grow items-center justify-center text-sm text-zinc-500">
+                  Start the conversation with a question.
+                </div>
+              ) : (
+                messages.map((message, index) => (
+                  <article
+                    key={index}
+                    className={`flex ${
+                      message.role === 'user' ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    <div
+                      className={`max-w-[75%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                        message.role === 'user'
+                          ? 'bg-zinc-900 text-white'
+                          : 'bg-white text-zinc-900 border border-zinc-200'
+                      }`}
+                    >
+                      {message.content}
+                    </div>
+                  </article>
+                ))
+              )}
+              <div ref={bottomRef} />
+            </div>
+            {error ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </div>
+            ) : null}
+          </section>
+
+          <form
+            onSubmit={handleSubmit}
+            className="flex items-end gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              placeholder="Send a message..."
+              className="min-h-[72px] w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-inner focus:border-zinc-400 focus:outline-none"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="h-[42px] rounded-xl bg-zinc-900 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+            >
+              {isLoading ? 'Thinking...' : 'Send'}
+            </button>
+          </form>
         </div>
       </main>
     </div>
