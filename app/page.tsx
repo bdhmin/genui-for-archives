@@ -100,6 +100,18 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpenId]);
 
+  // Keyboard shortcut: Cmd+Shift+O to create new conversation
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        void handleCreateConversation();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const fetchConversations = useCallback(async () => {
     setIsListLoading(true);
     try {
