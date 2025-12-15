@@ -11,7 +11,16 @@ import {
 import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, ArrowDown, MoreHorizontal, Trash2, Pencil } from 'lucide-react';
+import {
+  Send,
+  ArrowDown,
+  MoreHorizontal,
+  Trash2,
+  Pencil,
+  LayoutDashboard,
+  X,
+  ChevronRight,
+} from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -24,6 +33,20 @@ type ConversationListItem = {
   title: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type GlobalTag = {
+  id: string;
+  tag: string;
+  created_at: string;
+  conversation_global_tags?: { conversation_id: string }[];
+};
+
+type Widget = {
+  id: string;
+  globalTagId: string;
+  globalTag: string;
+  conversationIds: string[];
 };
 
 export default function ChatPage() {
@@ -43,6 +66,14 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
+  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
+  const [highlightedConversationIds, setHighlightedConversationIds] = useState<
+    string[]
+  >([]);
+  const [globalTags, setGlobalTags] = useState<GlobalTag[]>([]);
+  const [widgets, setWidgets] = useState<Widget[]>([]);
+  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -387,10 +418,70 @@ export default function ChatPage() {
       minute: '2-digit',
     });
 
+  // Fetch global tags and create widgets
+  const fetchGlobalTags = useCallback(async () => {
+    setIsLoadingTags(true);
+    try {
+      const res = await fetch('/api/tags');
+      if (!res.ok) {
+        throw new Error('Failed to load tags');
+      }
+      const data = await res.json();
+      const tags: GlobalTag[] = data.globalTags ?? [];
+      setGlobalTags(tags);
+
+      // Create widgets from global tags
+      const newWidgets: Widget[] = tags.map((tag) => ({
+        id: tag.id,
+        globalTagId: tag.id,
+        globalTag: tag.tag,
+        conversationIds:
+          tag.conversation_global_tags?.map((m) => m.conversation_id) ?? [],
+      }));
+      setWidgets(newWidgets);
+    } catch (err) {
+      console.error('Failed to fetch global tags:', err);
+    } finally {
+      setIsLoadingTags(false);
+    }
+  }, []);
+
+  // Fetch tags when dashboard opens
+  useEffect(() => {
+    if (isDashboardOpen) {
+      void fetchGlobalTags();
+    }
+  }, [isDashboardOpen, fetchGlobalTags]);
+
+  // Handle widget selection
+  const handleWidgetSelect = (widgetId: string) => {
+    if (selectedWidgetId === widgetId) {
+      // Deselect
+      setSelectedWidgetId(null);
+      setHighlightedConversationIds([]);
+    } else {
+      // Select and highlight conversations
+      setSelectedWidgetId(widgetId);
+      const widget = widgets.find((w) => w.id === widgetId);
+      setHighlightedConversationIds(widget?.conversationIds ?? []);
+    }
+  };
+
+  // Close dashboard
+  const closeDashboard = () => {
+    setIsDashboardOpen(false);
+    setSelectedWidgetId(null);
+    setHighlightedConversationIds([]);
+  };
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-900 text-zinc-100">
       <main className="flex min-h-0 grow bg-zinc-900">
-        <aside className="flex w-80 shrink-0 flex-col gap-4 overflow-hidden bg-zinc-950 px-5 py-6 text-zinc-50 lg:w-72">
+        <aside
+          className={`flex shrink-0 flex-col gap-4 overflow-hidden bg-zinc-950 px-5 py-6 text-zinc-50 transition-all duration-300 ease-out ${
+            isDashboardOpen ? 'w-72' : 'w-80 lg:w-72'
+          }`}
+        >
           <div className="flex flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold text-zinc-50">
@@ -398,9 +489,28 @@ export default function ChatPage() {
               </h2>
               <p className="text-xs text-zinc-400">Sorted by created date</p>
             </div>
+            {/* Dashboard Button */}
             <button
               type="button"
-              onClick={handleCreateConversation}
+              onClick={() => setIsDashboardOpen(true)}
+              className={`flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all ${
+                isDashboardOpen
+                  ? 'bg-amber-600 text-white hover:bg-amber-500'
+                  : 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:bg-zinc-600'
+              }`}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              <span>Generated UIs</span>
+            </button>
+            {/* New Conversation Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isDashboardOpen) {
+                  closeDashboard();
+                }
+                void handleCreateConversation();
+              }}
               disabled={isCreating}
               className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 text-sm font-semibold text-zinc-100 transition-all hover:bg-zinc-700 active:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -428,22 +538,38 @@ export default function ChatPage() {
                 const isActive = conversation.id === conversationId;
                 const isMenuOpen = menuOpenId === conversation.id;
                 const isRenaming = renamingId === conversation.id;
+                const isHighlighted = highlightedConversationIds.includes(
+                  conversation.id
+                );
                 return (
                   <div
                     key={conversation.id}
                     role="button"
                     tabIndex={0}
                     onClick={() => {
-                      if (!isRenaming) void loadConversation(conversation.id);
+                      if (!isRenaming) {
+                        if (isDashboardOpen) {
+                          closeDashboard();
+                        }
+                        void loadConversation(conversation.id);
+                      }
                     }}
                     onKeyDown={(event) => {
-                      if (!isRenaming && (event.key === 'Enter' || event.key === ' ')) {
+                      if (
+                        !isRenaming &&
+                        (event.key === 'Enter' || event.key === ' ')
+                      ) {
                         event.preventDefault();
+                        if (isDashboardOpen) {
+                          closeDashboard();
+                        }
                         void loadConversation(conversation.id);
                       }
                     }}
                     className={`group relative flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
-                      isActive
+                      isHighlighted
+                        ? 'bg-amber-600/30 ring-1 ring-amber-500/50 shadow-sm shadow-amber-900/30'
+                        : isActive
                         ? 'bg-zinc-700/70 shadow-sm shadow-zinc-900/50'
                         : 'hover:bg-zinc-800/50 active:bg-zinc-700/40'
                     }`}
@@ -457,14 +583,20 @@ export default function ChatPage() {
                           onKeyDown={(e) => {
                             e.stopPropagation();
                             if (e.key === 'Enter') {
-                              void handleRenameConversation(conversation.id, renameValue);
+                              void handleRenameConversation(
+                                conversation.id,
+                                renameValue
+                              );
                             } else if (e.key === 'Escape') {
                               setRenamingId(null);
                               setRenameValue('');
                             }
                           }}
                           onBlur={() => {
-                            void handleRenameConversation(conversation.id, renameValue);
+                            void handleRenameConversation(
+                              conversation.id,
+                              renameValue
+                            );
                           }}
                           onClick={(e) => e.stopPropagation()}
                           autoFocus
@@ -519,7 +651,9 @@ export default function ChatPage() {
                             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                            {deletingId === conversation.id ? 'Deleting...' : 'Delete'}
+                            {deletingId === conversation.id
+                              ? 'Deleting...'
+                              : 'Delete'}
                           </button>
                         </div>
                       )}
@@ -530,185 +664,346 @@ export default function ChatPage() {
             )}
           </div>
         </aside>
-        <div className="flex min-h-0 grow justify-center px-4 sm:px-6">
-          <div className="flex h-full w-full max-w-3xl flex-col bg-zinc-900 text-zinc-100">
-            <section className="relative flex min-h-0 grow flex-col">
-              <div
-                ref={messagesContainerRef}
-                onScroll={handleScroll}
-                className="flex grow flex-col gap-3 overflow-y-auto p-6"
-              >
-                {isLoadingConversation ? (
-                  <div className="flex grow items-center justify-center text-sm text-zinc-300">
-                    Loading conversation...
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex grow items-center justify-center text-sm text-zinc-300">
-                    Start the conversation with a question.
-                  </div>
-                ) : (
-                  messages.map((message, index) => (
-                    <article
-                      key={index}
-                      className={`flex ${
-                        message.role === 'user'
-                          ? 'justify-end'
-                          : 'justify-start'
-                      }`}
-                    >
-                      <div
-                        className={`text-base leading-7 ${
-                          message.role === 'user'
-                            ? 'max-w-[80%] rounded-2xl bg-zinc-700 px-4 py-3 text-zinc-100'
-                            : 'w-full px-2 py-2 text-zinc-100'
-                        }`}
-                      >
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          className="max-w-none break-words"
-                          components={{
-                            h1: ({ children }: { children?: ReactNode }) => (
-                              <h1 className="mt-8 mb-4 text-2xl font-bold first:mt-0">
-                                {children}
-                              </h1>
-                            ),
-                            h2: ({ children }: { children?: ReactNode }) => (
-                              <h2 className="mt-8 mb-4 text-xl font-bold first:mt-0">
-                                {children}
-                              </h2>
-                            ),
-                            h3: ({ children }: { children?: ReactNode }) => (
-                              <h3 className="mt-6 mb-3 text-lg font-bold first:mt-0">
-                                {children}
-                              </h3>
-                            ),
-                            p: ({ children }: { children?: ReactNode }) => (
-                              <p className="my-4 first:mt-0 last:mb-0">
-                                {children}
-                              </p>
-                            ),
-                            ul: ({ children }: { children?: ReactNode }) => (
-                              <ul className="mt-4 mb-2 list-disc pl-6">
-                                {children}
-                              </ul>
-                            ),
-                            ol: ({ children }: { children?: ReactNode }) => (
-                              <ol className="mt-4 mb-2 list-decimal pl-6">
-                                {children}
-                              </ol>
-                            ),
-                            li: ({ children }: { children?: ReactNode }) => (
-                              <li className="my-1">{children}</li>
-                            ),
-                            blockquote: ({
-                              children,
-                            }: {
-                              children?: ReactNode;
-                            }) => (
-                              <blockquote className="my-4 border-l-4 border-zinc-600 pl-4 italic">
-                                {children}
-                              </blockquote>
-                            ),
-                            hr: () => <hr className="my-6 border-zinc-700" />,
-                            code({
-                              inline,
-                              className,
-                              children,
-                              ...props
-                            }: {
-                              inline?: boolean;
-                              className?: string;
-                              children?: ReactNode;
-                            }) {
-                              if (inline) {
-                                return (
-                                  <code
-                                    className="rounded bg-zinc-600 px-1.5 py-0.5 text-sm"
-                                    {...props}
-                                  >
-                                    {children}
-                                  </code>
-                                );
-                              }
-                              return (
-                                <pre className="my-4 overflow-auto rounded-lg bg-zinc-800 p-4 text-sm text-zinc-100">
-                                  <code {...props} className={className}>
-                                    {children}
-                                  </code>
-                                </pre>
-                              );
-                            },
-                          }}
-                        >
-                          {message.content}
-                        </ReactMarkdown>
-                      </div>
-                    </article>
-                  ))
-                )}
-                <div ref={bottomRef} />
-              </div>
-
-              {/* Scroll to bottom button */}
-              {userHasScrolledUp && (
+        {/* Main Content Area - Chat or Dashboard */}
+        <div className="flex min-h-0 grow">
+          {isDashboardOpen ? (
+            /* Dashboard View */
+            <div className="flex h-full w-full flex-col bg-zinc-900 text-zinc-100 animate-in fade-in slide-in-from-left-4 duration-300">
+              {/* Dashboard Header */}
+              <div className="flex items-center justify-between border-b border-zinc-800 px-8 py-5">
+                <div>
+                  <h1 className="text-2xl font-bold text-zinc-50">
+                    Generated UIs
+                  </h1>
+                  <p className="text-sm text-zinc-400">
+                    Auto-generated UIs from your conversations
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={scrollToBottom}
-                  className="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-700 text-zinc-100 shadow-lg transition-all hover:bg-zinc-600 hover:scale-105"
-                  aria-label="Scroll to bottom"
+                  onClick={closeDashboard}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                  aria-label="Close dashboard"
                 >
-                  <ArrowDown className="h-5 w-5" />
+                  <X className="h-5 w-5" />
                 </button>
-              )}
-            </section>
+              </div>
 
-            <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
-              {error ? (
-                <div className="mb-3 text-sm text-red-200">{error}</div>
-              ) : null}
-              <form onSubmit={handleSubmit}>
-                <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-4 pr-2 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
-                  <textarea
-                    ref={(el) => {
-                      if (el) {
-                        el.style.height = 'auto';
-                        el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-                      }
-                    }}
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      const target = e.target;
-                      target.style.height = 'auto';
-                      target.style.height = `${Math.min(
-                        target.scrollHeight,
-                        200
-                      )}px`;
-                    }}
-                    onKeyDown={handleKeyDown}
-                    rows={1}
-                    placeholder="Send a message..."
-                    className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isLoading || !input.trim()}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-                    aria-label="Send message"
-                  >
-                    {isLoading ? (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-100" />
-                    ) : (
-                      <Send className="h-4 w-4" />
+              {/* Dashboard Content */}
+              <div className="flex-1 overflow-y-auto p-8">
+                {isLoadingTags ? (
+                  <div className="flex h-64 items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-500" />
+                      <p className="text-sm text-zinc-400">
+                        Loading widgets...
+                      </p>
+                    </div>
+                  </div>
+                ) : widgets.length === 0 ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-4">
+                    <LayoutDashboard className="h-16 w-16 text-zinc-700" />
+                    <div className="text-center">
+                      <p className="text-lg font-medium text-zinc-300">
+                        No widgets yet
+                      </p>
+                      <p className="text-sm text-zinc-500">
+                        Start conversations to generate widgets automatically
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-6">
+                    {/* Selected Widget Expanded View */}
+                    {selectedWidgetId && (
+                      <div className="rounded-xl border border-amber-500/30 bg-zinc-800/50 p-6 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="mb-4 flex items-start justify-between">
+                          <div>
+                            <h2 className="text-xl font-semibold text-zinc-100">
+                              {
+                                widgets.find((w) => w.id === selectedWidgetId)
+                                  ?.globalTag
+                              }
+                            </h2>
+                            <p className="text-sm text-zinc-400">
+                              {widgets.find((w) => w.id === selectedWidgetId)
+                                ?.conversationIds.length ?? 0}{' '}
+                              source conversations
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedWidgetId(null);
+                              setHighlightedConversationIds([]);
+                            }}
+                            className="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-700 hover:text-zinc-100"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50 p-8 text-center">
+                          <p className="text-sm text-zinc-500">
+                            Widget UI will be generated here based on
+                            conversation data
+                          </p>
+                          <p className="mt-2 text-xs text-zinc-600">
+                            (Future: calorie trackers, schedules, lists, etc.)
+                          </p>
+                        </div>
+                      </div>
                     )}
-                  </button>
-                </div>
-                <p className="mt-2 text-center text-xs text-zinc-500">
-                  Press Enter to send, Shift + Enter for new line
-                </p>
-              </form>
+
+                    {/* Widget Grid */}
+                    <div>
+                      <h3 className="mb-4 text-sm font-medium text-zinc-400">
+                        {selectedWidgetId ? 'Other Widgets' : 'All Widgets'}
+                      </h3>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {widgets
+                          .filter((w) => w.id !== selectedWidgetId)
+                          .map((widget) => (
+                            <button
+                              key={widget.id}
+                              type="button"
+                              onClick={() => handleWidgetSelect(widget.id)}
+                              className="group flex flex-col gap-3 rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5 text-left transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-800/50 hover:shadow-lg hover:shadow-zinc-900/50"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-700/50 text-amber-500">
+                                  <LayoutDashboard className="h-5 w-5" />
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
+                              </div>
+                              <div>
+                                <h4 className="font-medium text-zinc-200 line-clamp-2">
+                                  {widget.globalTag}
+                                </h4>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                  {widget.conversationIds.length} conversation
+                                  {widget.conversationIds.length !== 1
+                                    ? 's'
+                                    : ''}
+                                </p>
+                              </div>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Chat View */
+            <div className="flex min-h-0 grow justify-center px-4 sm:px-6">
+              <div className="flex h-full w-full max-w-3xl flex-col bg-zinc-900 text-zinc-100">
+                <section className="relative flex min-h-0 grow flex-col">
+                  <div
+                    ref={messagesContainerRef}
+                    onScroll={handleScroll}
+                    className="flex grow flex-col gap-3 overflow-y-auto p-6"
+                  >
+                    {isLoadingConversation ? (
+                      <div className="flex grow items-center justify-center text-sm text-zinc-300">
+                        Loading conversation...
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="flex grow items-center justify-center text-sm text-zinc-300">
+                        Start the conversation with a question.
+                      </div>
+                    ) : (
+                      messages.map((message, index) => (
+                        <article
+                          key={index}
+                          className={`flex ${
+                            message.role === 'user'
+                              ? 'justify-end'
+                              : 'justify-start'
+                          }`}
+                        >
+                          <div
+                            className={`text-base leading-7 ${
+                              message.role === 'user'
+                                ? 'max-w-[80%] rounded-2xl bg-zinc-700 px-4 py-3 text-zinc-100'
+                                : 'w-full px-2 py-2 text-zinc-100'
+                            }`}
+                          >
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              className="max-w-none break-words"
+                              components={{
+                                h1: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => (
+                                  <h1 className="mt-8 mb-4 text-2xl font-bold first:mt-0">
+                                    {children}
+                                  </h1>
+                                ),
+                                h2: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => (
+                                  <h2 className="mt-8 mb-4 text-xl font-bold first:mt-0">
+                                    {children}
+                                  </h2>
+                                ),
+                                h3: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => (
+                                  <h3 className="mt-6 mb-3 text-lg font-bold first:mt-0">
+                                    {children}
+                                  </h3>
+                                ),
+                                p: ({ children }: { children?: ReactNode }) => (
+                                  <p className="my-4 first:mt-0 last:mb-0">
+                                    {children}
+                                  </p>
+                                ),
+                                ul: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => (
+                                  <ul className="mt-4 mb-2 list-disc pl-6">
+                                    {children}
+                                  </ul>
+                                ),
+                                ol: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => (
+                                  <ol className="mt-4 mb-2 list-decimal pl-6">
+                                    {children}
+                                  </ol>
+                                ),
+                                li: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => <li className="my-1">{children}</li>,
+                                blockquote: ({
+                                  children,
+                                }: {
+                                  children?: ReactNode;
+                                }) => (
+                                  <blockquote className="my-4 border-l-4 border-zinc-600 pl-4 italic">
+                                    {children}
+                                  </blockquote>
+                                ),
+                                hr: () => (
+                                  <hr className="my-6 border-zinc-700" />
+                                ),
+                                code({
+                                  inline,
+                                  className,
+                                  children,
+                                  ...props
+                                }: {
+                                  inline?: boolean;
+                                  className?: string;
+                                  children?: ReactNode;
+                                }) {
+                                  if (inline) {
+                                    return (
+                                      <code
+                                        className="rounded bg-zinc-600 px-1.5 py-0.5 text-sm"
+                                        {...props}
+                                      >
+                                        {children}
+                                      </code>
+                                    );
+                                  }
+                                  return (
+                                    <pre className="my-4 overflow-auto rounded-lg bg-zinc-800 p-4 text-sm text-zinc-100">
+                                      <code {...props} className={className}>
+                                        {children}
+                                      </code>
+                                    </pre>
+                                  );
+                                },
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                    <div ref={bottomRef} />
+                  </div>
+
+                  {/* Scroll to bottom button */}
+                  {userHasScrolledUp && (
+                    <button
+                      type="button"
+                      onClick={scrollToBottom}
+                      className="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-700 text-zinc-100 shadow-lg transition-all hover:bg-zinc-600 hover:scale-105"
+                      aria-label="Scroll to bottom"
+                    >
+                      <ArrowDown className="h-5 w-5" />
+                    </button>
+                  )}
+                </section>
+
+                <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
+                  {error ? (
+                    <div className="mb-3 text-sm text-red-200">{error}</div>
+                  ) : null}
+                  <form onSubmit={handleSubmit}>
+                    <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-4 pr-2 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                      <textarea
+                        ref={(el) => {
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = `${Math.min(
+                              el.scrollHeight,
+                              200
+                            )}px`;
+                          }
+                        }}
+                        value={input}
+                        onChange={(e) => {
+                          setInput(e.target.value);
+                          const target = e.target;
+                          target.style.height = 'auto';
+                          target.style.height = `${Math.min(
+                            target.scrollHeight,
+                            200
+                          )}px`;
+                        }}
+                        onKeyDown={handleKeyDown}
+                        rows={1}
+                        placeholder="Send a message..."
+                        className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isLoading || !input.trim()}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                        aria-label="Send message"
+                      >
+                        {isLoading ? (
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-100" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-center text-xs text-zinc-500">
+                      Press Enter to send, Shift + Enter for new line
+                    </p>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

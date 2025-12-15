@@ -6,6 +6,7 @@ import {
   getConversationStore,
 } from "@/lib/conversationStore";
 import { generateConversationTitle } from "@/lib/titleGenerator";
+import { triggerRound1Tagging } from "@/lib/taggingService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +103,11 @@ export async function POST(req: Request) {
             };
 
             await store.appendMessage(conversation!.id, assistantMessage);
+
+            // Trigger tagging pipeline asynchronously (fire and forget)
+            triggerRound1Tagging(conversation!.id).catch((err) => {
+              console.error("[Chat] Failed to trigger tagging:", err);
+            });
 
             const shouldGenerateTitle =
               !conversation?.title ||
