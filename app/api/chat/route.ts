@@ -103,37 +103,16 @@ export async function POST(req: Request) {
 
             await store.appendMessage(conversation!.id, assistantMessage);
 
-            // Check if we need to generate a title
-            const updatedConvo = await store.getConversation(conversation!.id);
-            const currentTitle = updatedConvo?.title ?? "";
             const shouldGenerateTitle =
-              !currentTitle || currentTitle === "New conversation";
-
-            console.log("[Title Gen] Check:", {
-              currentTitle,
-              shouldGenerateTitle,
-              conversationId: conversation!.id,
-            });
+              !conversation?.title ||
+              conversation.title === "New conversation";
 
             if (shouldGenerateTitle) {
-              try {
-                const title = await generateConversationTitle({
-                  userMessage: input,
-                  assistantMessage: fullContent,
-                });
-                console.log("[Title Gen] Generated title:", title);
-                await store.setTitle(conversation!.id, title);
-                console.log("[Title Gen] Title saved successfully");
-                // Send title update event so frontend can update immediately
-                controller.enqueue(
-                  encoder.encode(
-                    `event:title\ndata:${JSON.stringify(title)}\n\n`
-                  )
-                );
-                console.log("[Title Gen] Title event sent to frontend");
-              } catch (titleError) {
-                console.error("[Title Gen] Error:", titleError);
-              }
+              const title = await generateConversationTitle({
+                userMessage: input,
+                assistantMessage: fullContent,
+              });
+              await store.setTitle(conversation!.id, title);
             }
 
             controller.enqueue(
