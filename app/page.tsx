@@ -11,7 +11,7 @@ import {
 import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, ArrowDown } from 'lucide-react';
+import { Send, ArrowDown, MoreHorizontal, Trash2, Pencil } from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -36,12 +36,16 @@ export default function ChatPage() {
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Check if scrolled to bottom (with small threshold)
   const isAtBottom = useCallback(() => {
@@ -82,6 +86,19 @@ export default function ChatPage() {
       bottomRef.current?.scrollIntoView({ behavior: 'auto' });
     }
   }, [isLoadingConversation, messages.length]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    if (menuOpenId) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuOpenId]);
 
   const fetchConversations = useCallback(async () => {
     setIsListLoading(true);
@@ -182,6 +199,35 @@ export default function ChatPage() {
       setError(message);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleRenameConversation = async (id: string, newTitle: string) => {
+    if (!newTitle.trim()) {
+      setRenamingId(null);
+      return;
+    }
+    setError(null);
+    try {
+      const res = await fetch(`/api/conversations/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to rename conversation');
+      }
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title: newTitle.trim() } : c))
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to rename conversation';
+      setError(message);
+    } finally {
+      setRenamingId(null);
+      setRenameValue('');
     }
   };
 
@@ -368,44 +414,104 @@ export default function ChatPage() {
             ) : (
               conversations.map((conversation) => {
                 const isActive = conversation.id === conversationId;
+                const isMenuOpen = menuOpenId === conversation.id;
+                const isRenaming = renamingId === conversation.id;
                 return (
                   <div
                     key={conversation.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => void loadConversation(conversation.id)}
+                    onClick={() => {
+                      if (!isRenaming) void loadConversation(conversation.id);
+                    }}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
+                      if (!isRenaming && (event.key === 'Enter' || event.key === ' ')) {
                         event.preventDefault();
                         void loadConversation(conversation.id);
                       }
                     }}
-                    className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
+                    className={`group relative flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
                       isActive
                         ? 'bg-zinc-700/70 shadow-sm shadow-zinc-900/50'
                         : 'hover:bg-zinc-800/50 active:bg-zinc-700/40'
                     }`}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-zinc-50">
-                        {conversation.title || 'Untitled'}
-                      </p>
-                      <p className="truncate text-xs text-zinc-400">
-                        {formatDate(conversation.createdAt)}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      {isRenaming ? (
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === 'Enter') {
+                              void handleRenameConversation(conversation.id, renameValue);
+                            } else if (e.key === 'Escape') {
+                              setRenamingId(null);
+                              setRenameValue('');
+                            }
+                          }}
+                          onBlur={() => {
+                            void handleRenameConversation(conversation.id, renameValue);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          className="w-full rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-50 outline-none ring-1 ring-zinc-600 focus:ring-zinc-500"
+                        />
+                      ) : (
+                        <>
+                          <p className="truncate text-sm font-medium text-zinc-50">
+                            {conversation.title || 'Untitled'}
+                          </p>
+                          <p className="truncate text-xs text-zinc-400">
+                            {formatDate(conversation.createdAt)}
+                          </p>
+                        </>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleDeleteConversation(conversation.id);
-                      }}
-                      disabled={deletingId === conversation.id}
-                      className="text-xs text-zinc-500 transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label={`Delete conversation ${conversation.title}`}
-                    >
-                      {deletingId === conversation.id ? '...' : '×'}
-                    </button>
+                    <div className="relative" ref={isMenuOpen ? menuRef : null}>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setMenuOpenId(isMenuOpen ? null : conversation.id);
+                        }}
+                        className="rounded p-1 text-zinc-500 transition hover:bg-zinc-700 hover:text-zinc-300"
+                        aria-label="Conversation options"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                      {isMenuOpen && (
+                        <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-lg border border-zinc-700 bg-zinc-800 py-1 shadow-lg">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenId(null);
+                              setRenamingId(conversation.id);
+                              setRenameValue(conversation.title || '');
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenId(null);
+                              void handleDeleteConversation(conversation.id);
+                            }}
+                            disabled={deletingId === conversation.id}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {deletingId === conversation.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })
@@ -548,8 +654,8 @@ export default function ChatPage() {
               {error ? (
                 <div className="mb-3 text-sm text-red-200">{error}</div>
               ) : null}
-              <form onSubmit={handleSubmit} className="relative">
-                <div className="relative flex items-end rounded-2xl border border-zinc-700 bg-zinc-800/50 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+              <form onSubmit={handleSubmit}>
+                <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-4 pr-2 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
                   <textarea
                     ref={(el) => {
                       if (el) {
@@ -570,16 +676,16 @@ export default function ChatPage() {
                     onKeyDown={handleKeyDown}
                     rows={1}
                     placeholder="Send a message..."
-                    className="max-h-[200px] min-h-[48px] w-full resize-none bg-transparent py-3 pl-4 pr-14 text-base leading-7 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                    className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                   />
                   <button
                     type="submit"
                     disabled={isLoading || !input.trim()}
-                    className="absolute bottom-2 right-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-900 transition-all hover:bg-white hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
                     aria-label="Send message"
                   >
                     {isLoading ? (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-900" />
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-100" />
                     ) : (
                       <Send className="h-4 w-4" />
                     )}
