@@ -20,7 +20,20 @@ import {
   LayoutDashboard,
   X,
   ChevronRight,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+
+// Dynamically import WidgetRenderer to avoid SSR issues with Sandpack
+const WidgetRenderer = dynamic(() => import('./components/WidgetRenderer'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-64 items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+    </div>
+  ),
+});
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -46,7 +59,28 @@ type Widget = {
   id: string;
   globalTagId: string;
   globalTag: string;
+  name: string;
+  description: string | null;
+  status: 'generating' | 'active' | 'error';
   conversationIds: string[];
+};
+
+type WidgetDetail = {
+  id: string;
+  globalTagId: string;
+  name: string;
+  description: string | null;
+  componentCode: string;
+  dataSchema: Record<string, unknown>;
+  status: string;
+  errorMessage: string | null;
+  globalTag: string;
+  conversationIds: string[];
+};
+
+type WidgetDataItem = {
+  id: string;
+  data: Record<string, unknown>;
 };
 
 type ConversationTagGroup = {
@@ -89,6 +123,12 @@ export default function ChatPage() {
   >([]);
   const [isLoadingConversationTags, setIsLoadingConversationTags] =
     useState(false);
+  const [selectedWidgetDetail, setSelectedWidgetDetail] =
+    useState<WidgetDetail | null>(null);
+  const [selectedWidgetData, setSelectedWidgetData] = useState<
+    WidgetDataItem[]
+  >([]);
+  const [isLoadingWidgetDetail, setIsLoadingWidgetDetail] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -445,40 +485,103 @@ export default function ChatPage() {
       minute: '2-digit',
     });
 
-  // Fetch global tags and create widgets
-  const fetchGlobalTags = useCallback(async () => {
+  // Fetch widgets from the new API
+  const fetchWidgets = useCallback(async () => {
     setIsLoadingTags(true);
     try {
-      const res = await fetch('/api/tags');
+      const res = await fetch('/api/widgets');
       if (!res.ok) {
-        throw new Error('Failed to load tags');
+        throw new Error('Failed to load widgets');
       }
       const data = await res.json();
-      const tags: GlobalTag[] = data.globalTags ?? [];
-      setGlobalTags(tags);
-
-      // Create widgets from global tags
-      const newWidgets: Widget[] = tags.map((tag) => ({
-        id: tag.id,
-        globalTagId: tag.id,
-        globalTag: tag.tag,
-        conversationIds:
-          tag.conversation_global_tags?.map((m) => m.conversation_id) ?? [],
-      }));
-      setWidgets(newWidgets);
+      setWidgets(data.widgets ?? []);
     } catch (err) {
-      console.error('Failed to fetch global tags:', err);
+      console.error('Failed to fetch widgets:', err);
+      // Fallback to tags API if widgets API fails
+      try {
+        const res = await fetch('/api/tags');
+        if (res.ok) {
+          const data = await res.json();
+          const tags: GlobalTag[] = data.globalTags ?? [];
+          setGlobalTags(tags);
+          // Create widgets from global tags as fallback
+          const fallbackWidgets: Widget[] = tags.map((tag) => ({
+            id: tag.id,
+            globalTagId: tag.id,
+            globalTag: tag.tag,
+            name: tag.tag,
+            description: null,
+            status: 'generating' as const,
+            conversationIds:
+              tag.conversation_global_tags?.map((m) => m.conversation_id) ?? [],
+          }));
+          setWidgets(fallbackWidgets);
+        }
+      } catch {
+        console.error('Failed to fetch tags fallback');
+      }
     } finally {
       setIsLoadingTags(false);
     }
   }, []);
 
-  // Fetch tags when dashboard opens
+  // Fetch widget detail when a widget is selected
+  const fetchWidgetDetail = useCallback(async (widgetId: string) => {
+    setIsLoadingWidgetDetail(true);
+    try {
+      const res = await fetch(`/api/widgets/${widgetId}`);
+      if (!res.ok) {
+        throw new Error('Failed to load widget details');
+      }
+      const data = await res.json();
+      setSelectedWidgetDetail(data.widget);
+      setSelectedWidgetData(data.dataItems ?? []);
+    } catch (err) {
+      console.error('Failed to fetch widget detail:', err);
+      setSelectedWidgetDetail(null);
+      setSelectedWidgetData([]);
+    } finally {
+      setIsLoadingWidgetDetail(false);
+    }
+  }, []);
+
+  // Handle widget data changes from the rendered widget
+  const handleWidgetDataChange = useCallback(
+    async (dataItems: WidgetDataItem[]) => {
+      if (!selectedWidgetId) return;
+
+      setSelectedWidgetData(dataItems);
+
+      // Persist to backend
+      try {
+        await fetch(`/api/widgets/${selectedWidgetId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataItems }),
+        });
+      } catch (err) {
+        console.error('Failed to save widget data:', err);
+      }
+    },
+    [selectedWidgetId]
+  );
+
+  // Fetch widgets when dashboard opens
   useEffect(() => {
     if (isDashboardOpen) {
-      void fetchGlobalTags();
+      void fetchWidgets();
     }
-  }, [isDashboardOpen, fetchGlobalTags]);
+  }, [isDashboardOpen, fetchWidgets]);
+
+  // Fetch widget detail when a widget is selected
+  useEffect(() => {
+    if (selectedWidgetId) {
+      void fetchWidgetDetail(selectedWidgetId);
+    } else {
+      setSelectedWidgetDetail(null);
+      setSelectedWidgetData([]);
+    }
+  }, [selectedWidgetId, fetchWidgetDetail]);
 
   // Handle widget selection
   const handleWidgetSelect = (widgetId: string) => {
@@ -522,6 +625,8 @@ export default function ChatPage() {
   const closeDashboard = () => {
     setIsDashboardOpen(false);
     setSelectedWidgetId(null);
+    setSelectedWidgetDetail(null);
+    setSelectedWidgetData([]);
     setHighlightedConversationIds([]);
     setShowConversationTags(false);
   };
@@ -863,15 +968,16 @@ export default function ChatPage() {
                         <div className="mb-4 flex items-start justify-between">
                           <div>
                             <h2 className="text-xl font-semibold text-zinc-100">
-                              {
+                              {selectedWidgetDetail?.name ||
                                 widgets.find((w) => w.id === selectedWidgetId)
-                                  ?.globalTag
-                              }
+                                  ?.globalTag}
                             </h2>
                             <p className="text-sm text-zinc-400">
-                              {widgets.find((w) => w.id === selectedWidgetId)
-                                ?.conversationIds.length ?? 0}{' '}
-                              source conversations
+                              {selectedWidgetDetail?.description ||
+                                `${
+                                  widgets.find((w) => w.id === selectedWidgetId)
+                                    ?.conversationIds.length ?? 0
+                                } source conversations`}
                             </p>
                           </div>
                           <button
@@ -885,15 +991,64 @@ export default function ChatPage() {
                             <X className="h-4 w-4" />
                           </button>
                         </div>
-                        <div className="rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50 p-8 text-center">
-                          <p className="text-sm text-zinc-500">
-                            Widget UI will be generated here based on
-                            conversation data
-                          </p>
-                          <p className="mt-2 text-xs text-zinc-600">
-                            (Future: calorie trackers, schedules, lists, etc.)
-                          </p>
-                        </div>
+
+                        {/* Widget Content */}
+                        {isLoadingWidgetDetail ? (
+                          <div className="flex h-64 items-center justify-center">
+                            <div className="flex flex-col items-center gap-3">
+                              <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+                              <p className="text-sm text-zinc-400">
+                                Loading widget...
+                              </p>
+                            </div>
+                          </div>
+                        ) : selectedWidgetDetail?.status === 'generating' ? (
+                          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50">
+                            <div className="flex flex-col items-center gap-3 text-center">
+                              <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+                              <div>
+                                <p className="text-sm text-zinc-300">
+                                  Generating widget...
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                  This may take a moment
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : selectedWidgetDetail?.status === 'error' ? (
+                          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-red-600/30 bg-red-900/10">
+                            <div className="flex flex-col items-center gap-3 text-center">
+                              <AlertCircle className="h-8 w-8 text-red-400" />
+                              <div>
+                                <p className="text-sm text-red-300">
+                                  Failed to generate widget
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-500">
+                                  {selectedWidgetDetail.errorMessage ||
+                                    'Unknown error'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : selectedWidgetDetail?.componentCode ? (
+                          <WidgetRenderer
+                            widgetId={selectedWidgetId}
+                            componentCode={selectedWidgetDetail.componentCode}
+                            dataItems={selectedWidgetData}
+                            onDataChange={handleWidgetDataChange}
+                            className="min-h-[400px]"
+                          />
+                        ) : (
+                          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-zinc-600 bg-zinc-900/50">
+                            <div className="flex flex-col items-center gap-3 text-center">
+                              <LayoutDashboard className="h-8 w-8 text-zinc-600" />
+                              <p className="text-sm text-zinc-500">
+                                No widget content available
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -910,24 +1065,56 @@ export default function ChatPage() {
                               key={widget.id}
                               type="button"
                               onClick={() => handleWidgetSelect(widget.id)}
-                              className="group flex flex-col gap-3 rounded-xl border border-zinc-700/50 bg-zinc-800/30 p-5 text-left transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-800/50 hover:shadow-lg hover:shadow-zinc-900/50"
+                              className={`group flex flex-col gap-3 rounded-xl border p-5 text-left transition-all duration-200 hover:shadow-lg hover:shadow-zinc-900/50 ${
+                                widget.status === 'generating'
+                                  ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
+                                  : widget.status === 'error'
+                                  ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
+                                  : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
+                              }`}
                             >
                               <div className="flex items-start justify-between">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-700/50 text-amber-500">
-                                  <LayoutDashboard className="h-5 w-5" />
+                                <div
+                                  className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                                    widget.status === 'generating'
+                                      ? 'bg-amber-900/30 text-amber-500'
+                                      : widget.status === 'error'
+                                      ? 'bg-red-900/30 text-red-400'
+                                      : 'bg-zinc-700/50 text-amber-500'
+                                  }`}
+                                >
+                                  {widget.status === 'generating' ? (
+                                    <Loader2 className="h-5 w-5 animate-spin" />
+                                  ) : widget.status === 'error' ? (
+                                    <AlertCircle className="h-5 w-5" />
+                                  ) : (
+                                    <LayoutDashboard className="h-5 w-5" />
+                                  )}
                                 </div>
                                 <ChevronRight className="h-4 w-4 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
                               </div>
                               <div>
                                 <h4 className="font-medium text-zinc-200 line-clamp-2">
-                                  {widget.globalTag}
+                                  {widget.name || widget.globalTag}
                                 </h4>
-                                <p className="mt-1 text-xs text-zinc-500">
-                                  {widget.conversationIds.length} conversation
-                                  {widget.conversationIds.length !== 1
-                                    ? 's'
-                                    : ''}
-                                </p>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <p className="text-xs text-zinc-500">
+                                    {widget.conversationIds.length} conversation
+                                    {widget.conversationIds.length !== 1
+                                      ? 's'
+                                      : ''}
+                                  </p>
+                                  {widget.status === 'generating' && (
+                                    <span className="text-xs text-amber-500">
+                                      Generating...
+                                    </span>
+                                  )}
+                                  {widget.status === 'error' && (
+                                    <span className="text-xs text-red-400">
+                                      Error
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </button>
                           ))}

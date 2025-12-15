@@ -203,12 +203,27 @@ Respond with a JSON object containing a "global_tags" array, where each item has
         )
       `);
 
+    // Trigger widget generation for all global tags (fire and forget)
+    // This will skip tags that already have active widgets
+    const generateWidgetUrl = `${supabaseUrl}/functions/v1/generate-widget-ui`;
+    for (const globalTag of allGlobalTags || []) {
+      fetch(generateWidgetUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${supabaseServiceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ global_tag_id: globalTag.id }),
+      }).catch((err) => console.error(`Failed to trigger widget generation for ${globalTag.id}:`, err));
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
         globalTags: allGlobalTags,
         newTagsCount: insertedGlobalTags.length,
         mappingsCount: mappingsToInsert.length,
+        widgetGenerationTriggered: allGlobalTags?.length || 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
