@@ -26,13 +26,13 @@ export async function generateConversationTitle({
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 32,
-      temperature: 0.4,
+      max_tokens: 12,
+      temperature: 0.3,
       messages: [
         {
           role: "system",
           content:
-            "Create a concise (<=6 words) title for a conversation. Do not use quotes.",
+            "Create a 2-3 word title for this conversation. Be brief and direct. No quotes, no punctuation.",
         },
         {
           role: "user",

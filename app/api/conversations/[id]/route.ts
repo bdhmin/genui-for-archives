@@ -43,6 +43,44 @@ export async function GET(req: Request, { params }: Params) {
   }
 }
 
+export async function PATCH(req: Request, { params }: Params) {
+  try {
+    const store = getConversationStore();
+    let idFromUrl: string | null = null;
+    try {
+      const parsed = new URL(req.url ?? "");
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      idFromUrl = parts[parts.length - 1] ?? null;
+    } catch {
+      idFromUrl = null;
+    }
+    const id = params?.id ?? idFromUrl;
+    if (!id) {
+      return NextResponse.json({ error: "Conversation id missing" }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const { title } = body as { title?: string };
+
+    if (typeof title !== "string" || !title.trim()) {
+      return NextResponse.json({ error: "Title is required" }, { status: 400 });
+    }
+
+    const updated = await store.setTitle(id, title.trim());
+    if (!updated) {
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("Rename conversation error", error);
+    return NextResponse.json(
+      { error: "Failed to rename conversation" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(_req: Request, { params }: Params) {
   try {
     const store = getConversationStore();

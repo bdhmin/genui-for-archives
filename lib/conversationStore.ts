@@ -293,13 +293,12 @@ class SupabaseConversationStore implements ConversationStore {
       .update({ title })
       .eq("id", id);
 
-    if (error && this.isMissingTitleColumn(error)) {
-      console.warn("[Supabase] Title column missing in database, title not saved");
-      return this.getConversation(id);
-    }
-
     if (error) {
-      console.error("[Supabase] setTitle error:", error.message);
+      console.error("[Supabase] setTitle error:", error.message, error);
+      if (this.isMissingTitleColumn(error)) {
+        console.warn("[Supabase] Title column missing in database, title not saved");
+        return this.getConversation(id);
+      }
       throw new Error(error.message);
     }
 
