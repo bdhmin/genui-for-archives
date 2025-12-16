@@ -1,6 +1,6 @@
 'use client';
 
-import {
+import React, {
   FormEvent,
   KeyboardEvent,
   useCallback,
@@ -1742,11 +1742,43 @@ export default function ChatPage() {
                                           children,
                                         }: {
                                           children?: ReactNode;
-                                        }) => (
-                                          <p className="my-4 first:mt-0 last:mb-0">
-                                            {children}
-                                          </p>
-                                        ),
+                                        }) => {
+                                          // Check if children contain a <pre> element (block code)
+                                          // If so, render without <p> wrapper to avoid invalid HTML
+                                          const checkForPre = (
+                                            node: ReactNode
+                                          ): boolean => {
+                                            if (React.isValidElement(node)) {
+                                              if (node.type === 'pre') {
+                                                return true;
+                                              }
+                                              const props = node.props as {
+                                                children?: ReactNode;
+                                              };
+                                              if (props?.children) {
+                                                return React.Children.toArray(
+                                                  props.children
+                                                ).some(checkForPre);
+                                              }
+                                            }
+                                            return false;
+                                          };
+
+                                          const hasPreElement =
+                                            React.Children.toArray(
+                                              children
+                                            ).some(checkForPre);
+
+                                          if (hasPreElement) {
+                                            return <>{children}</>;
+                                          }
+
+                                          return (
+                                            <p className="my-4 first:mt-0 last:mb-0">
+                                              {children}
+                                            </p>
+                                          );
+                                        },
                                         ul: ({
                                           children,
                                         }: {
