@@ -787,6 +787,12 @@ export default function ChatPage() {
     // Keep messages so user can continue editing later
   }, []);
 
+  // Handle "Ask to Fix" from widget error - opens edit mode with error context
+  const handleAskToFix = useCallback((errorMessage: string) => {
+    setWidgetEditMode(true);
+    setWidgetEditInput(errorMessage);
+  }, []);
+
   // Reset widget edit state when widget selection changes
   useEffect(() => {
     if (!selectedWidgetId) {
@@ -1647,6 +1653,7 @@ export default function ChatPage() {
                             componentCode={selectedWidgetDetail.componentCode}
                             dataItems={selectedWidgetData}
                             onDataChange={handleWidgetDataChange}
+                            onAskToFix={handleAskToFix}
                             className="h-full w-full"
                           />
                         ) : (

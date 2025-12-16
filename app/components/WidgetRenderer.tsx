@@ -5,12 +5,21 @@ import {
   SandpackProvider,
   SandpackPreview,
   SandpackLayout,
+  SandpackConsole,
+  useSandpack,
 } from '@codesandbox/sandpack-react';
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, Terminal, ChevronDown, ChevronUp, Wrench, Code, X } from 'lucide-react';
 
 type WidgetData = {
   id: string;
   data: Record<string, unknown>;
+};
+
+type SandpackError = {
+  message: string;
+  line?: number;
+  column?: number;
+  path?: string;
 };
 
 type WidgetRendererProps = {
@@ -18,6 +27,7 @@ type WidgetRendererProps = {
   componentCode: string;
   dataItems: WidgetData[];
   onDataChange?: (dataItems: WidgetData[]) => void;
+  onAskToFix?: (errorMessage: string) => void;
   className?: string;
 };
 
@@ -78,17 +88,146 @@ export default App;
 `;
 }
 
+// Error detector component that uses Sandpack's internal state
+function ErrorDetector({ 
+  onError, 
+  onStatusChange 
+}: { 
+  onError: (error: SandpackError | null) => void;
+  onStatusChange: (status: string) => void;
+}) {
+  const { sandpack } = useSandpack();
+  const prevErrorRef = useRef<string | null>(null);
+  const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    // Report status changes
+    onStatusChange(sandpack.status);
+  }, [sandpack.status, onStatusChange]);
+
+  useEffect(() => {
+    // Check for bundler errors
+    const error = sandpack.error;
+    const errorKey = error ? JSON.stringify(error) : null;
+    
+    // Only update if error changed
+    if (errorKey !== prevErrorRef.current) {
+      prevErrorRef.current = errorKey;
+      
+      // Clear any pending timeout
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+        errorTimeoutRef.current = null;
+      }
+      
+      if (error) {
+        // Set error immediately
+        onError({
+          message: error.message || 'An unknown error occurred',
+          line: error.line,
+          column: error.column,
+          path: error.path,
+        });
+      } else {
+        // Debounce clearing error to prevent flickering
+        // Only clear if no error persists for 500ms
+        errorTimeoutRef.current = setTimeout(() => {
+          onError(null);
+        }, 500);
+      }
+    }
+    
+    return () => {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+      }
+    };
+  }, [sandpack.error, onError]);
+
+  return null;
+}
+
+// Debug panel component with console output
+function DebugPanel({ 
+  error,
+  showCode,
+  onToggleCode,
+  componentCode,
+}: { 
+  error: SandpackError | null;
+  showCode: boolean;
+  onToggleCode: () => void;
+  componentCode: string;
+}) {
+  return (
+    <div className="flex flex-col border-t border-zinc-700 bg-zinc-950">
+      {/* Error details section */}
+      {error && (
+        <div className="border-b border-zinc-800 p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-400">Runtime Error</p>
+              <p className="text-xs text-zinc-400 mt-1 font-mono break-all">{error.message}</p>
+              {(error.line || error.path) && (
+                <p className="text-xs text-zinc-500 mt-1">
+                  {error.path && <span>File: {error.path}</span>}
+                  {error.line && <span className="ml-2">Line: {error.line}</span>}
+                  {error.column && <span className="ml-1">Col: {error.column}</span>}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Code viewer toggle */}
+      <button
+        onClick={onToggleCode}
+        className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-400 hover:text-zinc-300 hover:bg-zinc-900 transition-colors border-b border-zinc-800"
+      >
+        <Code className="h-3.5 w-3.5" />
+        <span>{showCode ? 'Hide' : 'Show'} Generated Code</span>
+        {showCode ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+      </button>
+
+      {/* Code viewer */}
+      {showCode && (
+        <div className="max-h-48 overflow-auto border-b border-zinc-800">
+          <pre className="p-3 text-xs font-mono text-zinc-400 whitespace-pre-wrap break-all">
+            {componentCode}
+          </pre>
+        </div>
+      )}
+
+      {/* Console output */}
+      <div className="flex-1 min-h-[120px] max-h-[200px] overflow-hidden">
+        <SandpackConsole 
+          showHeader={true}
+          showResetConsoleButton={true}
+          showSyntaxError={true}
+          className="!h-full !bg-zinc-950"
+        />
+      </div>
+    </div>
+  );
+}
+
 
 export default function WidgetRenderer({
   widgetId,
   componentCode,
   dataItems,
   onDataChange,
+  onAskToFix,
   className = '',
 }: WidgetRendererProps) {
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SandpackError | null>(null);
+  const [bundlerStatus, setBundlerStatus] = useState<string>('idle');
   const [forceRefreshCount, setForceRefreshCount] = useState(0);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const dataItemsRef = useRef(dataItems);
   const hasInitializedRef = useRef(false);
   const prevComponentCodeRef = useRef(componentCode);
@@ -110,6 +249,9 @@ export default function WidgetRenderer({
       initialDataRef.current = dataArray;
       hasInitializedRef.current = false;
       prevComponentCodeRef.current = componentCode;
+      // Clear error when code changes
+      setError(null);
+      setShowDebugPanel(false);
     }
   }, [componentCode, dataArray]);
 
@@ -169,7 +311,30 @@ export default function WidgetRenderer({
     initialDataRef.current = dataItemsRef.current.map((item) => item.data);
     setForceRefreshCount((c) => c + 1);
     setError(null);
+    setIsLoading(true);
+    setShowDebugPanel(false);
   }, []);
+
+  const handleError = useCallback((err: SandpackError | null) => {
+    setError(err);
+    // Don't auto-show debug panel - keep it user-friendly
+  }, []);
+
+  const handleStatusChange = useCallback((status: string) => {
+    setBundlerStatus(status);
+    // When bundler becomes idle (finished), check if still loading
+    if (status === 'idle') {
+      // Small delay to ensure preview has time to load
+      setTimeout(() => setIsLoading(false), 100);
+    }
+  }, []);
+
+  const handleAskToFix = useCallback(() => {
+    if (error && onAskToFix) {
+      const errorContext = `There's an error in the widget code:\n\n${error.message}${error.line ? `\n(Line ${error.line}${error.column ? `, Column ${error.column}` : ''})` : ''}\n\nPlease fix this error.`;
+      onAskToFix(errorContext);
+    }
+  }, [error, onAskToFix]);
 
   if (!componentCode) {
     return (
@@ -184,27 +349,73 @@ export default function WidgetRenderer({
 
   return (
     <div className={`relative flex flex-col overflow-hidden bg-zinc-900 ${className}`}>
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-zinc-800 z-10">
+      {/* Loading overlay */}
+      {isLoading && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900 z-20">
           <div className="flex flex-col items-center gap-3 text-zinc-400">
             <Loader2 className="h-8 w-8 animate-spin" />
-            <p className="text-sm">Loading widget...</p>
+            <p className="text-sm">
+              {bundlerStatus === 'running' ? 'Bundling...' : 'Loading widget...'}
+            </p>
           </div>
         </div>
       )}
 
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-zinc-800 z-10">
-          <div className="flex flex-col items-center gap-3 text-red-400 p-4 text-center">
-            <AlertCircle className="h-8 w-8" />
-            <p className="text-sm">{error}</p>
-            <button
-              onClick={handleRefresh}
-              className="flex items-center gap-2 px-3 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg text-sm text-zinc-200 transition-colors"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Retry
-            </button>
+      {/* Error overlay - completely solid to hide any flickering underneath */}
+      {error && !showDebugPanel && (
+        <div className="absolute inset-0 z-50 flex flex-col bg-zinc-900">
+          
+          {/* Error message */}
+          <div className="relative flex-1 flex flex-col items-center justify-center p-8">
+            <div className="flex flex-col items-center gap-5 text-center max-w-sm">
+              {/* Red glow indicator */}
+              <div className="relative">
+                <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl" />
+                <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-red-900/40 border border-red-500/30">
+                  <AlertCircle className="h-8 w-8 text-red-400" />
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-lg font-medium text-zinc-200">
+                  Something went wrong
+                </p>
+                <p className="text-sm text-zinc-500 mt-2">
+                  There&apos;s an error in the generated code.
+                  {onAskToFix && ' Click below to have AI fix it.'}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col items-center gap-3 w-full">
+                {onAskToFix && (
+                  <button
+                    onClick={handleAskToFix}
+                    className="flex items-center justify-center gap-2 w-full px-5 py-3 bg-amber-600 hover:bg-amber-500 rounded-xl text-sm font-medium text-white transition-colors"
+                  >
+                    <Wrench className="h-4 w-4" />
+                    Ask AI to Fix
+                  </button>
+                )}
+                
+                <div className="flex items-center gap-2 w-full">
+                  <button
+                    onClick={handleRefresh}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Retry
+                  </button>
+                  <button
+                    onClick={() => setShowDebugPanel(true)}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm text-zinc-300 transition-colors"
+                  >
+                    <Terminal className="h-4 w-4" />
+                    View Details
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -290,27 +501,91 @@ root.render(
             'sp-layout': 'sp-custom-layout',
             'sp-stack': 'sp-custom-stack',
           },
+          // Disable auto-reload to prevent constant flickering on errors
+          autoReload: false,
         }}
       >
-        <SandpackLayout className="!h-full !min-h-0 !bg-zinc-900 !border-0">
-          <SandpackPreview
-            showOpenInCodeSandbox={false}
-            showRefreshButton={false}
-            actionsChildren={
-              <button
-                onClick={handleRefresh}
-                className="p-1.5 hover:bg-zinc-700 rounded transition-colors"
-                title="Refresh widget"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            }
-            style={{ height: '100%', minHeight: '300px', backgroundColor: '#18181b' }}
-            onLoad={() => setIsLoading(false)}
-          />
+        {/* Error detector - uses Sandpack hook to detect errors */}
+        <ErrorDetector onError={handleError} onStatusChange={handleStatusChange} />
+
+        <SandpackLayout 
+          className="!h-full !min-h-0 !bg-zinc-900 !border-0 !flex !flex-col"
+          style={{ 
+            // Completely hide content when error overlay is shown to prevent flickering
+            display: (error && !showDebugPanel) ? 'none' : 'flex' 
+          }}
+        >
+          {/* Main preview area */}
+          <div className={`relative flex-1 min-h-0 ${showDebugPanel ? 'max-h-[60%]' : ''}`}>
+            <SandpackPreview
+              showOpenInCodeSandbox={false}
+              showRefreshButton={false}
+              actionsChildren={
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowDebugPanel(!showDebugPanel)}
+                    className={`p-1.5 rounded transition-colors ${showDebugPanel ? 'bg-amber-600 text-white' : error ? 'bg-red-600 text-white' : 'hover:bg-zinc-700 text-zinc-400'}`}
+                    title={showDebugPanel ? 'Hide debug panel' : 'Show debug panel'}
+                  >
+                    <Terminal className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={handleRefresh}
+                    className="p-1.5 hover:bg-zinc-700 rounded transition-colors"
+                    title="Refresh widget"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                </div>
+              }
+              style={{ height: '100%', minHeight: '200px', backgroundColor: '#18181b' }}
+              onLoad={() => setIsLoading(false)}
+            />
+          </div>
+
+          {/* Debug panel */}
+          {showDebugPanel && (
+            <div className="shrink-0 border-t border-zinc-700 bg-zinc-950">
+              {/* Debug panel header */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+                <div className="flex items-center gap-2 text-xs text-zinc-400">
+                  <Terminal className="h-3.5 w-3.5" />
+                  <span>Debug Console</span>
+                  {error && (
+                    <span className="px-2 py-0.5 bg-red-900/50 text-red-400 rounded text-[10px] font-medium">
+                      ERROR
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {error && onAskToFix && (
+                    <button
+                      onClick={handleAskToFix}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs text-white transition-colors"
+                    >
+                      <Wrench className="h-3 w-3" />
+                      Ask to Fix
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowDebugPanel(false)}
+                    className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-zinc-300"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              
+              <DebugPanel 
+                error={error} 
+                showCode={showCode}
+                onToggleCode={() => setShowCode(!showCode)}
+                componentCode={componentCode}
+              />
+            </div>
+          )}
         </SandpackLayout>
       </SandpackProvider>
     </div>
   );
 }
-

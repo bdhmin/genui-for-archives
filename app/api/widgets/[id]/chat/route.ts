@@ -42,9 +42,13 @@ CRITICAL RULES:
 - Keep the same function signature: function Widget({ data, onDataChange }) { ... }
 - Keep export default Widget; at the end
 - Preserve all existing functionality unless explicitly asked to remove it
-- Use ONLY React hooks (useState, useEffect, useMemo, useCallback, useRef)
+- CRITICAL - IMPORTS:
+  * DO import from 'lucide-react' (e.g., import { Plus, Trash2, Edit2, Check, X, Calendar } from 'lucide-react')
+  * DO NOT import React hooks (useState, useEffect, useMemo, useCallback, useRef) - these are already imported in the wrapper code
+  * DO NOT import React itself - React is available globally
+  * The wrapper code already provides: React, useState, useEffect, useMemo, useCallback, useRef
+- Use React hooks (useState, useEffect, useMemo, useCallback, useRef) - they are already available, just use them directly
 - Use ONLY Tailwind CSS for styling
-- Use ONLY lucide-react for icons - import at top: import { Plus, Trash2, Edit2, Check, X, Calendar } from 'lucide-react';
 - NEVER use emoji or text symbols for icons - ALWAYS use Lucide icons
 - Icon sizing: className="w-4 h-4" (small), "w-5 h-5" (medium)
 

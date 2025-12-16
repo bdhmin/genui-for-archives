@@ -350,9 +350,9 @@ COMPONENT REQUIREMENTS:
 - Must be a single, self-contained React functional component
 - Create a TIMELINE or HISTORY view - show data chronologically
 - Group or display items by date
-- Use ONLY React hooks (useState, useEffect, useMemo, useCallback)
+- Use React hooks (useState, useEffect, useMemo, useCallback, useRef) - they are already available, DO NOT import them
 - Use ONLY Tailwind CSS for styling - STRICTLY follow the design system above
-- Use ONLY lucide-react for icons
+- Use ONLY lucide-react for icons - you MUST import these (e.g., import { Plus, Trash2 } from 'lucide-react')
 - Component receives props: { data, onDataChange }
 - data is an array matching your dataSchema
 - onDataChange(newData) should be called when user edits data
@@ -365,7 +365,11 @@ COMPONENT CODE FORMAT:
 - Then: function Widget({ data, onDataChange }) {
 - End with: export default Widget;
 - Include inline comments for complex logic
-- Only import lucide-react (React is available globally)
+- CRITICAL - IMPORTS:
+  * DO import from 'lucide-react' (e.g., import { Plus, Trash2 } from 'lucide-react')
+  * DO NOT import React hooks (useState, useEffect, useMemo, useCallback, useRef) - these are already imported in the wrapper code
+  * DO NOT import React itself - React is available globally
+  * The wrapper code already provides: React, useState, useEffect, useMemo, useCallback, useRef
 - Sort and group data by date for timeline display
 
 Example data schema for calories:
