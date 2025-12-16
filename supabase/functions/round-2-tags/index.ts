@@ -92,34 +92,40 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a tag clustering expert. Analyze conversation tags and create meaningful global tags that each deserve their own dedicated UI widget.
+            content: `You are a tag clustering expert. Your PRIMARY goal is to CREATE NEW GLOBAL TAGS for EACH DISTINCT TOPIC you see in the conversation tags.
+
+CRITICAL: A single conversation can discuss MULTIPLE different topics! You must create a SEPARATE global tag for EACH distinct topic mentioned, even if they're in the same conversation.
 
 You will receive:
 1. EXISTING global tags (if any) - these already have UI widgets built for them
-2. New conversation tags to categorize
+2. Conversation tags to categorize - EACH tag represents a specific request/topic
 
 YOUR TASK:
-For each conversation, determine which global tag(s) it belongs to. BE LIBERAL about creating new tags - each distinct topic that would benefit from its own UI should get its own tag.
+1. Look at EACH conversation tag individually (not just the overall conversation)
+2. For EACH distinct topic/request, determine if it needs its own global tag
+3. A single conversation should be mapped to MULTIPLE global tags if it discusses multiple topics
+4. DEFAULT TO CREATING NEW TAGS for any topic not EXACTLY matching an existing tag
 
-WHEN TO REUSE AN EXISTING TAG:
-- The conversation is about EXACTLY the same trackable topic (e.g., both about calorie tracking specifically)
-- The data type and structure would be identical
+WHEN TO REUSE AN EXISTING TAG (be very strict!):
+- The conversation tag is about PRECISELY the same specific topic
+- You would display the EXACT same UI with the same data fields
 - Use the EXACT text of the existing tag
 
-WHEN TO CREATE A NEW TAG (prefer this when in doubt!):
-- The conversation has a DIFFERENT focus, even within a similar domain
-- Examples where you SHOULD create separate tags:
-  - "Calorie Tracking" vs "Meal Planning" vs "Restaurant Recommendations" (different aspects of food)
-  - "Workspace Setup" vs "Office Furniture Purchases" vs "Ergonomics Research" (different aspects of office)
-  - "Daily Exercise Log" vs "Running Goals" vs "Gym Membership" (different aspects of fitness)
-  - "Book Recommendations" vs "Reading Progress" vs "Library Visits" (different aspects of reading)
-- If the conversation introduces a new TYPE of data to track, create a new tag
-- If the conversation would benefit from a different UI visualization, create a new tag
+WHEN TO CREATE A NEW TAG (this is your DEFAULT!):
+- ANY new topic, subject, or category you see in the conversation tags
+- ANY topic that doesn't EXACTLY match an existing global tag
+- If a conversation discusses topic A and topic B, create TWO global tags (one for each)
+- Examples of topics that MUST ALWAYS be separate:
+  - "Calorie Tracking" vs "Meal Planning" vs "Restaurant Recommendations" vs "Grocery Lists" vs "Recipes"
+  - "Workspace Setup" vs "Office Furniture" vs "Ergonomics" vs "Home Office Budget"
+  - "Daily Exercise Log" vs "Running Goals" vs "Gym Membership" vs "Workout Plans"
+  - "Book Recommendations" vs "Reading Progress" vs "Library Visits" vs "Book Notes"
+  - "Travel Plans" vs "Flight Bookings" vs "Hotel Research" vs "Trip Budgets"
 - New tags should be short phrases (3-6 words)
-- New tags should be specific enough to have a clear, focused UI
+- Be SPECIFIC - use subtopics, not generic categories
 
-GUIDING PRINCIPLE:
-Each global tag becomes a dedicated UI widget. Ask yourself: "Would this conversation's data be BETTER served by its own specialized UI, or does it truly belong with an existing widget?" When in doubt, CREATE A NEW TAG. Users prefer focused, specialized widgets over cramming everything into one generic widget.
+CRITICAL RULE FOR MULTI-TOPIC CONVERSATIONS:
+If a conversation has tags about calories AND tags about exercise, that conversation MUST appear in BOTH a calories global tag AND an exercise global tag. Don't just pick one - include it in ALL relevant global tags.
 
 OUTPUT FORMAT:
 {
@@ -127,12 +133,16 @@ OUTPUT FORMAT:
     {
       "tag": "Exact existing tag text OR new tag phrase",
       "source_conversation_ids": ["conv-id-1", "conv-id-2"],
-      "is_new": false  // true only if creating a brand new category
+      "is_new": true
     }
   ]
 }
 
-A conversation can belong to multiple tags if it spans multiple categories.
+CRITICAL REQUIREMENTS:
+1. EVERY global tag MUST have at least one conversation ID in source_conversation_ids
+2. Use the EXACT conversation IDs from the input (the UUIDs in parentheses)
+3. A global tag with empty source_conversation_ids is INVALID - do not create it
+4. Each conversation ID should appear in at least one global tag
 
 Respond with valid JSON.`,
           },
@@ -144,7 +154,13 @@ ${existingTagsList || "(none - all tags will be new)"}
 CONVERSATION TAGS TO CATEGORIZE:
 ${allTagsText}
 
-Categorize each conversation. Create new global tags for topics not covered by existing ones. Return your response as JSON.`,
+INSTRUCTIONS:
+1. For each conversation, identify ALL distinct topics discussed
+2. Create or reuse a global tag for EACH topic
+3. Include the conversation's UUID in the source_conversation_ids for EVERY relevant global tag
+4. EVERY global tag in your response MUST have at least one conversation ID
+
+Return your response as JSON.`,
           },
         ],
         temperature: 0.4,
@@ -165,7 +181,24 @@ Categorize each conversation. Create new global tags for topics not covered by e
     }
 
     const parsedResponse: TagClusteringResponse = JSON.parse(generatedContent);
-    const globalTags = parsedResponse.global_tags || [];
+    const rawGlobalTags = parsedResponse.global_tags || [];
+    
+    // Log what the AI returned
+    console.log(`[Round2] AI returned ${rawGlobalTags.length} global tags`);
+    for (const tag of rawGlobalTags) {
+      console.log(`[Round2] Tag: "${tag.tag}" -> conversations: ${JSON.stringify(tag.source_conversation_ids || [])}`);
+    }
+    
+    // Filter out tags with no conversation IDs (invalid)
+    const globalTags = rawGlobalTags.filter(tag => {
+      const hasConversations = tag.source_conversation_ids && tag.source_conversation_ids.length > 0;
+      if (!hasConversations) {
+        console.warn(`[Round2] Skipping tag "${tag.tag}" - no source_conversation_ids`);
+      }
+      return hasConversations;
+    });
+    
+    console.log(`[Round2] After filtering: ${globalTags.length} valid global tags`);
 
     // Upsert global tags and create mappings
     const insertedGlobalTags = [];
@@ -258,6 +291,8 @@ Categorize each conversation. Create new global tags for topics not covered by e
     let widgetsToGenerate = 0;
     let dataUpdatesTriggered = 0;
 
+    const widgetGenerationResults: { globalTagId: string; success: boolean; error?: string }[] = [];
+
     for (const globalTag of allGlobalTags || []) {
       const existingWidget = widgetByGlobalTag.get(globalTag.id);
       const conversationIds = globalTag.conversation_global_tags?.map(
@@ -283,15 +318,46 @@ Categorize each conversation. Create new global tags for topics not covered by e
         }
       } else {
         // No widget or widget is in error/generating state - trigger generation
-        fetch(generateWidgetUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${supabaseServiceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ global_tag_id: globalTag.id }),
-        }).catch((err) => console.error(`Failed to trigger widget generation for ${globalTag.id}:`, err));
-        widgetsToGenerate++;
+        console.log(`[Round2] Triggering widget generation for global tag: ${globalTag.id} (${globalTag.tag})`);
+        try {
+          const genResponse = await fetch(generateWidgetUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${supabaseServiceKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ global_tag_id: globalTag.id }),
+          });
+          
+          console.log(`[Round2] Widget gen response status: ${genResponse.status}`);
+          
+          const responseText = await genResponse.text();
+          console.log(`[Round2] Widget gen raw response for ${globalTag.id}:`, responseText.substring(0, 500));
+          
+          let genResult;
+          try {
+            genResult = JSON.parse(responseText);
+          } catch {
+            genResult = { success: false, error: `Non-JSON response: ${responseText.substring(0, 200)}` };
+          }
+          
+          widgetGenerationResults.push({
+            globalTagId: globalTag.id,
+            success: genResult.success === true,
+            error: genResult.error || (genResponse.status !== 200 ? `HTTP ${genResponse.status}` : undefined),
+          });
+          
+          if (genResult.success) {
+            widgetsToGenerate++;
+          }
+        } catch (err) {
+          console.error(`[Round2] Failed to trigger widget generation for ${globalTag.id}:`, err);
+          widgetGenerationResults.push({
+            globalTagId: globalTag.id,
+            success: false,
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
       }
     }
 
@@ -302,6 +368,7 @@ Categorize each conversation. Create new global tags for topics not covered by e
         newTagsCount: insertedGlobalTags.length,
         mappingsCount: mappingsToInsert.length,
         widgetGenerationTriggered: widgetsToGenerate,
+        widgetGenerationResults: widgetGenerationResults,
         dataUpdatesTriggered: dataUpdatesTriggered,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

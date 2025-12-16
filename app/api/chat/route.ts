@@ -7,7 +7,8 @@ import {
 } from "@/lib/conversationStore";
 import { generateConversationTitle } from "@/lib/titleGenerator";
 import { 
-  triggerRound1Tagging, 
+  triggerRound1Tagging,
+  triggerRound2Tagging,
   updateLinkedWidgets,
   getLinkedWidgetsContext,
   LinkedWidgetContext,
@@ -536,10 +537,26 @@ export async function POST(req: Request) {
               });
             }
 
-            // Trigger tagging pipeline asynchronously (fire and forget)
-            triggerRound1Tagging(conversation!.id).catch((err) => {
-              console.error("[Chat] Failed to trigger tagging:", err);
-            });
+            // Trigger tagging pipeline asynchronously
+            // Round 1: Generate conversation-level tags
+            // Round 2: Create global tags and trigger widget generation
+            triggerRound1Tagging(conversation!.id)
+              .then((round1Result) => {
+                console.log("[Chat] Round 1 tagging result:", JSON.stringify(round1Result));
+                if (round1Result.success) {
+                  // Explicitly trigger round 2 to create global tags
+                  return triggerRound2Tagging();
+                }
+                return null;
+              })
+              .then((round2Result) => {
+                if (round2Result) {
+                  console.log("[Chat] Round 2 tagging result:", JSON.stringify(round2Result));
+                }
+              })
+              .catch((err) => {
+                console.error("[Chat] Failed to trigger tagging:", err);
+              });
 
             // Update any widgets linked to this conversation with the new data
             // This handles data extraction via edge functions for conversations

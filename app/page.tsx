@@ -555,35 +555,73 @@ export default function ChatPage() {
       setTaggingConversationIds((prev) => new Set(prev).add(newConversationId));
       setPipelineStage('tagging');
 
-      // Pipeline stage progression (approximate timings)
-      // Stage 1: Tagging (Round 1) - ~3 seconds
+      // Stage 1: Tagging (Round 1) - starts immediately, then move to synthesizing
       setTimeout(() => {
         setPipelineStage('synthesizing');
       }, 3000);
 
-      // Stage 2: Synthesizing (Round 2) - ~5 seconds after tagging
-      setTimeout(() => {
-        setPipelineStage('updating');
-      }, 8000);
+      // After synthesizing starts, poll for widget generation status
+      // This checks if any widget is actually being generated
+      const pollForWidgetStatus = async () => {
+        let attempts = 0;
+        const maxAttempts = 30; // Poll for up to 60 seconds (30 * 2s)
 
-      // Stage 3: Updating data - ~3 seconds
-      setTimeout(() => {
-        setPipelineStage('generating');
-      }, 11000);
+        const checkWidgets = async () => {
+          attempts++;
+          try {
+            const res = await fetch('/api/widgets');
+            if (res.ok) {
+              const data = await res.json();
+              const widgetList = data.widgets || [];
 
-      // Stage 4: Generating UIs - ~5 seconds, then idle
-      setTimeout(() => {
-        setPipelineStage('idle');
-        setTaggingConversationIds((prev) => {
-          const next = new Set(prev);
-          next.delete(newConversationId!);
-          return next;
-        });
-        // Refresh widgets after pipeline completes
-        if (isDashboardOpen) {
-          void fetchWidgets();
-        }
-      }, 16000);
+              // Check if any widget is currently generating
+              const generatingWidgets = widgetList.filter(
+                (w: Widget) => w.status === 'generating'
+              );
+
+              if (generatingWidgets.length > 0) {
+                // There are widgets being generated
+                setPipelineStage('generating');
+              }
+
+              // If no more generating widgets and we're past initial stages
+              if (attempts > 5 && generatingWidgets.length === 0) {
+                setPipelineStage('idle');
+                setTaggingConversationIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(newConversationId!);
+                  return next;
+                });
+                // Refresh widgets when done
+                if (isDashboardOpen) {
+                  void fetchWidgets();
+                }
+                return; // Stop polling
+              }
+            }
+          } catch {
+            // Ignore fetch errors during polling
+          }
+
+          // Continue polling if not done
+          if (attempts < maxAttempts) {
+            setTimeout(checkWidgets, 2000);
+          } else {
+            // Max attempts reached, set to idle
+            setPipelineStage('idle');
+            setTaggingConversationIds((prev) => {
+              const next = new Set(prev);
+              next.delete(newConversationId!);
+              return next;
+            });
+          }
+        };
+
+        // Start checking after synthesizing stage begins (give round 2 time to start)
+        setTimeout(checkWidgets, 5000);
+      };
+
+      void pollForWidgetStatus();
 
       void fetchConversations();
     } catch (err) {

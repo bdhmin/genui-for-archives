@@ -191,28 +191,44 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a React component generator that creates REFLECTIVE, TIMELINE-BASED UI widgets from conversation history.
+            content: `You are a React component generator that creates MEANINGFUL, CONTEXT-APPROPRIATE UI widgets from conversation history.
 
-Your goal is to help users look back on their past conversations and see a meaningful visualization of the data they discussed over time.
+Your goal is to help users interact with and visualize their data in the most useful way. Choose the UI type that best fits the data and use case.
 
 You will receive:
 1. A global tag (the theme/category)
 2. Detailed conversation tags (specific requests/topics)
 3. Actual conversation content WITH DATES - each conversation has a date when it occurred
 
+IMPORTANT - CHOOSE THE RIGHT UI TYPE:
+Analyze the data and choose the most appropriate visualization. Here are some options (but be creative!):
+
+- **Timeline/History**: Best for tracking things over time (meals, workouts, expenses by date)
+- **Checklist/Todo**: Best for action items, tasks, goals to complete
+- **Cards/Gallery**: Best for collections (recipes, bookmarks, ideas, notes)
+- **Table/List**: Best for comparing items with multiple attributes
+- **Dashboard/Stats**: Best for numerical data that should show aggregates, averages, trends
+- **Kanban/Board**: Best for items with status/stages (projects, habits with streaks)
+- **Tree/Hierarchy**: Best for nested or categorized information
+- **Simple List**: Best for straightforward lists without complex structure
+- **Form/Input**: Best when the primary action is data entry
+- **Counter/Tracker**: Best for simple counting or streak tracking
+
+The UI should match what makes the data MOST USEFUL, not just default to a timeline.
+
 Generate a JSON response with:
-1. "name": A concise widget name (e.g., "Calorie Timeline", "Purchase History")
+1. "name": A concise widget name that reflects the UI type (e.g., "Recipe Collection", "Task Tracker", "Expense Dashboard")
 2. "description": One sentence describing what this widget shows
-3. "dataSchema": A JSON Schema - MUST include a "date" field (ISO string) for timeline functionality
+3. "dataSchema": A JSON Schema appropriate for your chosen UI type
 4. "componentCode": A complete React functional component as a string
-5. "initialData": An array of data items EXTRACTED FROM THE CONVERSATIONS with dates
+5. "initialData": An array of data items EXTRACTED FROM THE CONVERSATIONS
 
 CRITICAL - DATA EXTRACTION:
 - Extract ACTUAL data mentioned in the conversations (meals, calories, items, amounts, etc.)
-- Use the CONVERSATION DATE as the date for each extracted item
-- If a conversation mentions "I had soup and rice for lunch", extract that as a data item with the conversation's date
+- Include dates when relevant (some UI types need them, some don't)
+- If a conversation mentions "I had soup and rice for lunch", extract that as a data item
 - Be thorough - extract every relevant data point mentioned
-- Each item MUST have an "id", "date", and relevant fields for the data type
+- Each item MUST have an "id" and relevant fields for the data type
 
 === DESIGN SYSTEM - FOLLOW THIS EXACTLY ===
 
@@ -280,7 +296,7 @@ The widget MUST match this exact design system from the parent application:
 - Title in text-zinc-300, description in text-zinc-500
 
 **SPECIFIC UI PATTERNS TO USE:**
-- Date groupings: Use section headers with text-sm font-medium text-zinc-500 (muted)
+- Section headers/groupings: Use text-sm font-medium text-zinc-500 (muted) - works for dates, categories, statuses, etc.
 - List items: rounded-xl p-4 with hover:bg-zinc-800/30 - keep backgrounds flat
 - Inline actions: Small icon buttons with p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50
 - Form rows: flex items-center gap-4 with labels as text-sm text-zinc-500
@@ -313,8 +329,8 @@ Main container (flat, no extra background):
 List item row (use border for separation, NOT background):
 \`<div className="flex items-center justify-between py-4 border-b border-zinc-800/50 last:border-b-0">\`
 
-Date section header:
-\`<h3 className="text-sm font-medium text-zinc-500 pt-4 pb-2">December 15, 2025</h3>\`
+Section header (for dates, categories, or any grouping):
+\`<h3 className="text-sm font-medium text-zinc-500 pt-4 pb-2">Section Title</h3>\`
 
 Primary button (neutral, NOT colored):
 \`<button className="rounded-xl bg-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors">\`
@@ -328,7 +344,7 @@ Delete button (NO red - use neutral with icon):
 Input field:
 \`<input className="w-full rounded-xl border border-zinc-700/50 bg-zinc-800 px-4 py-2.5 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none" />\`
 
-Summary/total row (subtle, minimal):
+Summary/footer row (subtle, minimal):
 \`<div className="mt-4 pt-4 border-t border-zinc-800/50 flex justify-between items-center">\`
 
 Action links (text-based, no color):
@@ -348,16 +364,16 @@ Icon buttons (small, subtle):
 
 COMPONENT REQUIREMENTS:
 - Must be a single, self-contained React functional component
-- Create a TIMELINE or HISTORY view - show data chronologically
-- Group or display items by date
+- Create the UI type that BEST FITS the data - NOT always a timeline
+- If temporal, group by date; if categorical, group by category; if status-based, show statuses
 - Use React hooks (useState, useEffect, useMemo, useCallback, useRef) - they are already available, DO NOT import them
 - Use ONLY Tailwind CSS for styling - STRICTLY follow the design system above
 - Use ONLY lucide-react for icons - you MUST import these (e.g., import { Plus, Trash2 } from 'lucide-react')
 - Component receives props: { data, onDataChange }
 - data is an array matching your dataSchema
 - onDataChange(newData) should be called when user edits data
-- Include add, edit, and delete functionality
-- Show summaries/totals where appropriate (e.g., total calories per day)
+- Include add, edit, and delete functionality appropriate for the UI type
+- Show summaries/totals/stats where appropriate for the data
 - Handle empty state gracefully with centered content and muted styling
 
 COMPONENT CODE FORMAT:
@@ -370,29 +386,47 @@ COMPONENT CODE FORMAT:
   * DO NOT import React hooks (useState, useEffect, useMemo, useCallback, useRef) - these are already imported in the wrapper code
   * DO NOT import React itself - React is available globally
   * The wrapper code already provides: React, useState, useEffect, useMemo, useCallback, useRef
-- Sort and group data by date for timeline display
+- Organize data in a way that makes sense for your chosen UI type
 
-Example data schema for calories:
+EXAMPLE DATA SCHEMAS (choose what fits):
+
+For a checklist/todo:
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "task": { "type": "string" },
+    "completed": { "type": "boolean" },
+    "priority": { "type": "string" }
+  }
+}
+
+For a recipe collection:
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "ingredients": { "type": "array" },
+    "instructions": { "type": "string" },
+    "tags": { "type": "array" }
+  }
+}
+
+For tracking with dates (only when temporal makes sense):
 {
   "type": "object",
   "properties": {
     "id": { "type": "string" },
     "date": { "type": "string", "format": "date" },
-    "meal": { "type": "string" },
     "description": { "type": "string" },
-    "calories": { "type": "number" }
+    "amount": { "type": "number" }
   }
-}
-
-Example initialData for calories (EXTRACT FROM ACTUAL CONVERSATIONS):
-[
-  { "id": "1", "date": "2025-12-14", "meal": "Lunch", "description": "Soup with rice and Korean side dishes", "calories": 650 },
-  { "id": "2", "date": "2025-12-15", "meal": "Dinner", "description": "Grilled chicken with vegetables", "calories": 450 }
-]`,
+}`,
           },
           {
             role: "user",
-            content: `Generate a TIMELINE-BASED widget for this theme. Extract all relevant data from the conversations below.
+            content: `Generate a widget for this theme. Choose the UI type that BEST FITS the data - do NOT default to a timeline unless chronological tracking is the core use case.
 
 GLOBAL TAG: ${globalTag.tag}
 
@@ -402,7 +436,11 @@ ${tagsList}
 CONVERSATIONS WITH DATES:
 ${conversationsText}
 
-IMPORTANT: Extract every piece of relevant data mentioned in these conversations and include the conversation date for each item. Create a timeline/history view.
+IMPORTANT: 
+1. First, analyze what type of data this is and what UI would be MOST USEFUL
+2. Extract every piece of relevant data mentioned in these conversations
+3. Include dates only if they're relevant to how users would interact with this data
+4. Create a UI that matches how users would naturally want to use this information
 
 Generate the complete widget specification as JSON.`,
           },
