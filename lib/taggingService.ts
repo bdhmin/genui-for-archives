@@ -210,6 +210,26 @@ export type TriggerSchemaEvolutionResponse = {
   error?: string;
 };
 
+export type UpdateLinkedWidgetsResponse = {
+  success: boolean;
+  widgetsUpdated: number;
+  errors?: string[];
+};
+
+export type LinkedWidgetContext = {
+  id: string;
+  name: string;
+  description: string | null;
+  dataSchema: Record<string, unknown>;
+  recentData: Record<string, unknown>[];
+};
+
+export type GetLinkedWidgetsContextResponse = {
+  success: boolean;
+  widgets: LinkedWidgetContext[];
+  error?: string;
+};
+
 /**
  * Triggers the schema evolution edge function for a widget.
  * This analyzes new conversation data and evolves the widget schema if needed.
@@ -248,6 +268,205 @@ export async function triggerSchemaEvolution(
     console.error("[TaggingService] Schema evolution error:", error);
     return {
       success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Updates all widgets that are linked to a conversation.
+ * This should be called after a conversation is updated to ensure all linked widgets
+ * have their data refreshed with the latest conversation content.
+ */
+export async function updateLinkedWidgets(
+  conversationId: string
+): Promise<UpdateLinkedWidgetsResponse> {
+  console.log("[TaggingService] Updating linked widgets for conversation:", conversationId);
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.warn("[TaggingService] Supabase env vars not configured");
+    return { success: false, widgetsUpdated: 0, errors: ["Supabase not configured"] };
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    // Find all global tags linked to this conversation
+    const { data: conversationGlobalTags, error: linkError } = await supabase
+      .from("conversation_global_tags")
+      .select("global_tag_id")
+      .eq("conversation_id", conversationId);
+
+    if (linkError) {
+      console.error("[TaggingService] Failed to fetch conversation global tags:", linkError);
+      return { success: false, widgetsUpdated: 0, errors: [linkError.message] };
+    }
+
+    if (!conversationGlobalTags || conversationGlobalTags.length === 0) {
+      console.log("[TaggingService] No widgets linked to this conversation");
+      return { success: true, widgetsUpdated: 0 };
+    }
+
+    const globalTagIds = conversationGlobalTags.map(t => t.global_tag_id);
+
+    // Find all widgets for these global tags
+    const { data: widgets, error: widgetError } = await supabase
+      .from("ui_widgets")
+      .select("id, status")
+      .in("global_tag_id", globalTagIds)
+      .eq("status", "active");
+
+    if (widgetError) {
+      console.error("[TaggingService] Failed to fetch widgets:", widgetError);
+      return { success: false, widgetsUpdated: 0, errors: [widgetError.message] };
+    }
+
+    if (!widgets || widgets.length === 0) {
+      console.log("[TaggingService] No active widgets found for linked global tags");
+      return { success: true, widgetsUpdated: 0 };
+    }
+
+    console.log(`[TaggingService] Found ${widgets.length} linked widget(s) to update`);
+
+    // Update each widget with the conversation data
+    const errors: string[] = [];
+    let updatedCount = 0;
+
+    for (const widget of widgets) {
+      try {
+        // Use update-widget-data edge function to extract and add data
+        const updateResponse = await fetch(`${SUPABASE_URL}/functions/v1/update-widget-data`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${SUPABASE_SERVICE_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ 
+            widget_id: widget.id, 
+            conversation_id: conversationId 
+          }),
+        });
+
+        if (!updateResponse.ok) {
+          const errorText = await updateResponse.text();
+          console.error(`[TaggingService] Failed to update widget ${widget.id}:`, errorText);
+          errors.push(`Widget ${widget.id}: ${errorText}`);
+        } else {
+          const result = await updateResponse.json();
+          console.log(`[TaggingService] Widget ${widget.id} update result:`, result);
+          updatedCount++;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[TaggingService] Error updating widget ${widget.id}:`, err);
+        errors.push(`Widget ${widget.id}: ${message}`);
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      widgetsUpdated: updatedCount,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  } catch (error) {
+    console.error("[TaggingService] Error in updateLinkedWidgets:", error);
+    return {
+      success: false,
+      widgetsUpdated: 0,
+      errors: [error instanceof Error ? error.message : "Unknown error"],
+    };
+  }
+}
+
+/**
+ * Fetches all widgets linked to a conversation along with their schemas and recent data.
+ * This is used to provide context to the AI during chat for proactive data population.
+ */
+export async function getLinkedWidgetsContext(
+  conversationId: string
+): Promise<GetLinkedWidgetsContextResponse> {
+  console.log("[TaggingService] Getting linked widgets context for conversation:", conversationId);
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.warn("[TaggingService] Supabase env vars not configured");
+    return { success: false, widgets: [], error: "Supabase not configured" };
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    // Find all global tags linked to this conversation
+    const { data: conversationGlobalTags, error: linkError } = await supabase
+      .from("conversation_global_tags")
+      .select("global_tag_id")
+      .eq("conversation_id", conversationId);
+
+    if (linkError) {
+      console.error("[TaggingService] Failed to fetch conversation global tags:", linkError);
+      return { success: false, widgets: [], error: linkError.message };
+    }
+
+    if (!conversationGlobalTags || conversationGlobalTags.length === 0) {
+      console.log("[TaggingService] No widgets linked to this conversation");
+      return { success: true, widgets: [] };
+    }
+
+    const globalTagIds = conversationGlobalTags.map(t => t.global_tag_id);
+
+    // Find all active widgets for these global tags
+    const { data: widgets, error: widgetError } = await supabase
+      .from("ui_widgets")
+      .select("id, name, description, data_schema")
+      .in("global_tag_id", globalTagIds)
+      .eq("status", "active");
+
+    if (widgetError) {
+      console.error("[TaggingService] Failed to fetch widgets:", widgetError);
+      return { success: false, widgets: [], error: widgetError.message };
+    }
+
+    if (!widgets || widgets.length === 0) {
+      console.log("[TaggingService] No active widgets found for linked global tags");
+      return { success: true, widgets: [] };
+    }
+
+    console.log(`[TaggingService] Found ${widgets.length} linked widget(s)`);
+
+    // Fetch recent data for each widget
+    const widgetContexts: LinkedWidgetContext[] = [];
+
+    for (const widget of widgets) {
+      const { data: widgetData, error: dataError } = await supabase
+        .from("ui_widget_data")
+        .select("data")
+        .eq("widget_id", widget.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (dataError) {
+        console.error(`[TaggingService] Failed to fetch data for widget ${widget.id}:`, dataError);
+      }
+
+      widgetContexts.push({
+        id: widget.id,
+        name: widget.name,
+        description: widget.description,
+        dataSchema: widget.data_schema as Record<string, unknown>,
+        recentData: (widgetData || []).map(d => d.data as Record<string, unknown>),
+      });
+    }
+
+    return {
+      success: true,
+      widgets: widgetContexts,
+    };
+  } catch (error) {
+    console.error("[TaggingService] Error in getLinkedWidgetsContext:", error);
+    return {
+      success: false,
+      widgets: [],
       error: error instanceof Error ? error.message : "Unknown error",
     };
   }

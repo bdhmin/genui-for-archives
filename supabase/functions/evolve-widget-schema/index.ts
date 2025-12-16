@@ -17,17 +17,42 @@ interface Message {
   created_at: string;
 }
 
+interface DataOperation {
+  action: "add" | "update" | "delete";
+  data?: Record<string, unknown>;
+  targetDate?: string;
+  targetType?: string;
+  reason: string;
+}
+
 interface SchemaEvolutionResult {
   schemaChanged: boolean;
   newSchema?: Record<string, unknown>;
   newComponentCode?: string;
-  extractedData: unknown[];
+  operations: DataOperation[];
 }
 
 interface WidgetData {
   id: string;
   data: Record<string, unknown>;
   source_conversation_id: string | null;
+}
+
+/**
+ * Format a date with time in US Pacific timezone for display
+ * Supabase edge functions run in UTC, so we explicitly use America/Los_Angeles timezone
+ */
+function formatDateTimeInPacific(date: Date): string {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return formatter.format(date);
 }
 
 serve(async (req) => {
@@ -121,17 +146,14 @@ serve(async (req) => {
       .eq("widget_id", widget_id)
       .limit(10);
 
-    // Format the conversation with date
-    const formattedDate = new Date(conversation.created_at).toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-    const isoDate = new Date(conversation.created_at).toISOString().split('T')[0];
-
+    // Include timestamps in conversation text so AI can see exactly when each message was sent
+    // Use Pacific timezone to match user's local time
     const conversationText = (messages as Message[])
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .map(m => {
+        const msgDate = new Date(m.created_at);
+        const msgDateStr = formatDateTimeInPacific(msgDate);
+        return `[${msgDateStr}] ${m.role.toUpperCase()}: ${m.content}`;
+      })
       .join("\n");
 
     // Sample of existing data for schema understanding
@@ -155,13 +177,13 @@ serve(async (req) => {
 
 You will receive:
 1. The widget's current data schema
-2. Sample of existing data items
-3. A new conversation to integrate
+2. Existing data items in the widget
+3. A new conversation to integrate with TIMESTAMPS on each message
 
-Your task:
+Your tasks:
 1. Determine if the new conversation contains data that doesn't fit the current schema
 2. If schema needs to change, propose the evolved schema that supports BOTH old and new data
-3. Extract all relevant data from the new conversation
+3. Determine what data operations are needed (add, update, or delete)
 
 SCHEMA EVOLUTION RULES:
 - Only evolve schema if truly necessary (new field types not currently supported)
@@ -169,18 +191,35 @@ SCHEMA EVOLUTION RULES:
 - Add new optional fields for new data types
 - Never remove or rename existing fields
 
+DATE RESOLUTION RULES (CRITICAL):
+- LOOK AT THE TIMESTAMP on each message to determine the correct date
+- Each message has a timestamp like "[Mon, Dec 15, 2025, 8:30 PM]" - use THIS date for events mentioned in that message
+- If a message from Dec 15 mentions "today" or "tonight", the date should be 2025-12-15
+- ALWAYS use the date shown in the message timestamp, NOT any other reference date
+
+DATA OPERATIONS:
+You can specify three types of operations:
+1. "add" - Add new data items
+2. "update" - Modify existing data items (match by date + type/category)
+3. "delete" - Remove existing data items that are incorrect or no longer valid
+
 Respond with JSON:
 {
   "schemaChanged": boolean,
-  "reason": "explanation of decision",
+  "reason": "explanation of schema decision",
   "newSchema": { ...evolved schema if changed, null if not },
-  "extractedData": [ ...data items from new conversation ]
+  "operations": [
+    {
+      "action": "add" | "update" | "delete",
+      "data": { ...data matching schema... },
+      "targetDate": "YYYY-MM-DD",
+      "targetType": "optional field like meal type to match",
+      "reason": "why this operation"
+    }
+  ]
 }
 
-Each extracted data item MUST have:
-- "id": unique string
-- "date": "${isoDate}" (the conversation date)
-- All fields matching the current (or new) schema`,
+Be aggressive about correcting data - if the user says something that contradicts existing data, delete or update it!`,
           },
           {
             role: "user",
@@ -190,13 +229,17 @@ WIDGET DESCRIPTION: ${widget.description || 'No description'}
 CURRENT DATA SCHEMA:
 ${JSON.stringify(widget.data_schema, null, 2)}
 
-EXISTING DATA SAMPLE (${existingDataSample.length} items shown of ${currentWidgetData?.length || 0} total):
+EXISTING DATA (${currentWidgetData?.length || 0} items):
 ${JSON.stringify(existingDataSample, null, 2)}
 
-NEW CONVERSATION (Date: ${formattedDate}):
+NEW CONVERSATION (each message has a timestamp showing when it was sent):
 ${conversationText}
 
-Analyze if schema evolution is needed and extract all relevant data from this conversation.`,
+Analyze if schema evolution is needed and determine what data operations are needed.
+- If the user mentions new data, ADD it
+- If the user corrects or updates something, UPDATE or DELETE the old entry
+- If the user says they made a mistake or didn't do something, DELETE the incorrect entry
+- USE THE DATE FROM EACH MESSAGE'S TIMESTAMP for date fields`,
           },
         ],
         temperature: 0.3,
@@ -354,21 +397,80 @@ Update the component to support the evolved schema while maintaining backward co
       }
 
     } else {
-      // Schema didn't change, just insert the new data
-      if (analysis.extractedData && analysis.extractedData.length > 0) {
-        const dataRows = analysis.extractedData.map((item: Record<string, unknown>) => ({
-          widget_id,
-          data: item,
-          source_conversation_id: conversation_id,
-        }));
-
-        const { error: insertError } = await supabase
+      // Schema didn't change, process data operations
+      if (analysis.operations && analysis.operations.length > 0) {
+        // Fetch all existing widget data for matching
+        const { data: allExistingData } = await supabase
           .from("ui_widget_data")
-          .insert(dataRows);
+          .select("id, data")
+          .eq("widget_id", widget_id);
 
-        if (insertError) {
-          console.error("[EvolveSchema] Failed to insert data:", insertError);
+        // Helper to find matching entry
+        const findMatchingEntry = (targetDate: string, targetType?: string) => {
+          return (allExistingData || []).find((existing: { id: string; data: Record<string, unknown> }) => {
+            const existingDate = (existing.data?.date as string) || "";
+            if (existingDate !== targetDate) return false;
+            
+            if (targetType) {
+              const typeFields = ["type", "category", "meal", "mealType", "name"];
+              for (const field of typeFields) {
+                if (existing.data?.[field] === targetType) return true;
+              }
+              return false;
+            }
+            return true;
+          });
+        };
+
+        let addedCount = 0, updatedCount = 0, deletedCount = 0;
+
+        for (const op of analysis.operations) {
+          try {
+            if (op.action === "delete") {
+              const targetDate = op.targetDate || (op.data?.date as string);
+              if (targetDate) {
+                const matchingEntry = findMatchingEntry(targetDate, op.targetType);
+                if (matchingEntry) {
+                  await supabase.from("ui_widget_data").delete().eq("id", matchingEntry.id);
+                  deletedCount++;
+                  const idx = allExistingData?.indexOf(matchingEntry);
+                  if (idx !== undefined && idx > -1) allExistingData?.splice(idx, 1);
+                }
+              }
+            } else if (op.action === "update") {
+              const targetDate = op.targetDate || (op.data?.date as string);
+              if (targetDate && op.data) {
+                const matchingEntry = findMatchingEntry(targetDate, op.targetType);
+                if (matchingEntry) {
+                  await supabase.from("ui_widget_data").update({
+                    data: op.data,
+                    source_conversation_id: conversation_id,
+                    updated_at: new Date().toISOString(),
+                  }).eq("id", matchingEntry.id);
+                  updatedCount++;
+                } else {
+                  await supabase.from("ui_widget_data").insert({
+                    widget_id,
+                    data: op.data,
+                    source_conversation_id: conversation_id,
+                  });
+                  addedCount++;
+                }
+              }
+            } else if (op.action === "add" && op.data) {
+              await supabase.from("ui_widget_data").insert({
+                widget_id,
+                data: op.data,
+                source_conversation_id: conversation_id,
+              });
+              addedCount++;
+            }
+          } catch (err) {
+            console.error(`[EvolveSchema] Error processing operation:`, err);
+          }
         }
+
+        console.log(`[EvolveSchema] Operations completed: added=${addedCount}, updated=${updatedCount}, deleted=${deletedCount}`);
       }
     }
 
@@ -378,7 +480,7 @@ Update the component to support the evolved schema while maintaining backward co
         widgetId: widget_id,
         conversationId: conversation_id,
         schemaChanged: analysis.schemaChanged,
-        newDataCount: analysis.extractedData?.length || 0,
+        operationsCount: analysis.operations?.length || 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
