@@ -276,9 +276,12 @@ DESIGN SYSTEM (must follow exactly):
 - Use flat design - separate with borders not backgrounds
 
 Component format:
-- Start with: function Widget({ data, onDataChange }) {
+- Start with imports: import { Plus, Trash2, Edit2, Check, X } from 'lucide-react';
+- Then: function Widget({ data, onDataChange }) {
 - End with: export default Widget;
-- NO imports (React available globally)
+- ONLY import lucide-react for icons (React available globally)
+- NEVER use emoji or text symbols for icons - ALWAYS use Lucide icons
+- Icon sizing: className="w-4 h-4" (small), "w-5 h-5" (medium)
 
 Respond with ONLY the component code, no markdown fences or explanation.`,
             },

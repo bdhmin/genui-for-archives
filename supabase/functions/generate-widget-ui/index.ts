@@ -337,12 +337,22 @@ Action links (text-based, no color):
 Icon buttons (small, subtle):
 \`<button className="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors">\`
 
+**ICONS - USE LUCIDE-REACT:**
+- ALWAYS use lucide-react for icons - it is available in the sandbox
+- Import icons at the top of the component: import { Plus, Trash2, Edit2, Check, X, Calendar, ChevronDown } from 'lucide-react';
+- Common icons: Plus (add), Trash2 (delete), Edit2/Pencil (edit), Check (confirm), X (cancel/close), Calendar (dates), ChevronDown/ChevronUp (expand/collapse)
+- Icon sizing: className="w-4 h-4" for small, "w-5 h-5" for medium, "w-6 h-6" for large
+- Icon colors: Use text color classes like text-zinc-400, text-zinc-500, hover:text-zinc-300
+- Example: <Trash2 className="w-4 h-4" /> inside a button
+- NEVER use emoji or text symbols for icons - ALWAYS use Lucide icons
+
 COMPONENT REQUIREMENTS:
 - Must be a single, self-contained React functional component
 - Create a TIMELINE or HISTORY view - show data chronologically
 - Group or display items by date
 - Use ONLY React hooks (useState, useEffect, useMemo, useCallback)
 - Use ONLY Tailwind CSS for styling - STRICTLY follow the design system above
+- Use ONLY lucide-react for icons
 - Component receives props: { data, onDataChange }
 - data is an array matching your dataSchema
 - onDataChange(newData) should be called when user edits data
@@ -351,10 +361,11 @@ COMPONENT REQUIREMENTS:
 - Handle empty state gracefully with centered content and muted styling
 
 COMPONENT CODE FORMAT:
-- Start with: function Widget({ data, onDataChange }) {
+- Start with imports: import { IconName1, IconName2 } from 'lucide-react';
+- Then: function Widget({ data, onDataChange }) {
 - End with: export default Widget;
 - Include inline comments for complex logic
-- DO NOT use any imports (React is available globally)
+- Only import lucide-react (React is available globally)
 - Sort and group data by date for timeline display
 
 Example data schema for calories:

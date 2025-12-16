@@ -212,7 +212,37 @@ export default function WidgetRenderer({
       <SandpackProvider
         key={stableKey}
         template="react"
-        theme="dark"
+        theme={{
+          colors: {
+            surface1: '#18181b',
+            surface2: '#27272a',
+            surface3: '#3f3f46',
+            clickable: '#a1a1aa',
+            base: '#fafafa',
+            disabled: '#52525b',
+            hover: '#52525b',
+            accent: '#f59e0b',
+            error: '#ef4444',
+            errorSurface: '#7f1d1d',
+          },
+          syntax: {
+            plain: '#fafafa',
+            comment: { color: '#71717a', fontStyle: 'italic' },
+            keyword: '#f59e0b',
+            tag: '#22d3ee',
+            punctuation: '#a1a1aa',
+            definition: '#a78bfa',
+            property: '#fafafa',
+            static: '#f59e0b',
+            string: '#4ade80',
+          },
+          font: {
+            body: '"Hanken Grotesk", ui-sans-serif, system-ui, sans-serif',
+            mono: '"Fira Code", "Fira Mono", Menlo, monospace',
+            size: '14px',
+            lineHeight: '1.6',
+          },
+        }}
         files={{
           '/App.js': wrapperCode,
           '/styles.css': `
@@ -248,6 +278,7 @@ root.render(
           dependencies: {
             react: '^18.0.0',
             'react-dom': '^18.0.0',
+            'lucide-react': '^0.454.0',
           },
         }}
         options={{
@@ -261,7 +292,7 @@ root.render(
           },
         }}
       >
-        <SandpackLayout className="!h-full !min-h-0">
+        <SandpackLayout className="!h-full !min-h-0 !bg-zinc-900 !border-0">
           <SandpackPreview
             showOpenInCodeSandbox={false}
             showRefreshButton={false}
@@ -274,7 +305,7 @@ root.render(
                 <RefreshCw className="h-4 w-4" />
               </button>
             }
-            style={{ height: '100%', minHeight: '300px' }}
+            style={{ height: '100%', minHeight: '300px', backgroundColor: '#18181b' }}
             onLoad={() => setIsLoading(false)}
           />
         </SandpackLayout>

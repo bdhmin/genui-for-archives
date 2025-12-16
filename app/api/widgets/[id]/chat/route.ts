@@ -44,7 +44,9 @@ CRITICAL RULES:
 - Preserve all existing functionality unless explicitly asked to remove it
 - Use ONLY React hooks (useState, useEffect, useMemo, useCallback, useRef)
 - Use ONLY Tailwind CSS for styling
-- DO NOT use any imports (React is available globally in the sandbox)
+- Use ONLY lucide-react for icons - import at top: import { Plus, Trash2, Edit2, Check, X, Calendar } from 'lucide-react';
+- NEVER use emoji or text symbols for icons - ALWAYS use Lucide icons
+- Icon sizing: className="w-4 h-4" (small), "w-5 h-5" (medium)
 
 DESIGN SYSTEM - FOLLOW EXACTLY:
 - Background: bg-zinc-900, bg-zinc-800, bg-zinc-800/30

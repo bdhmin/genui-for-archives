@@ -1564,387 +1564,324 @@ export default function ChatPage() {
                     </div>
 
                     {/* Widget Content - Fullscreen or vertical layout when editing */}
-                    <div
-                      style={{
-                        transition:
-                          'padding 400ms cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
-                      className={`flex min-h-0 grow bg-zinc-900 justify-center ${
-                        widgetEditMode ? 'px-4 sm:px-6' : 'px-0'
-                      }`}
-                    >
+                    <div className="relative min-h-0 grow bg-zinc-900 overflow-hidden">
+                      {/* Widget Preview - uses absolute positioning for smooth animation */}
                       <div
                         style={{
                           transition:
-                            'max-width 400ms cubic-bezier(0.4, 0, 0.2, 1)',
+                            'top 700ms cubic-bezier(0.4, 0, 0.2, 1), left 700ms cubic-bezier(0.4, 0, 0.2, 1), right 700ms cubic-bezier(0.4, 0, 0.2, 1), bottom 700ms cubic-bezier(0.4, 0, 0.2, 1), border-radius 700ms cubic-bezier(0.4, 0, 0.2, 1), border-color 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 700ms cubic-bezier(0.4, 0, 0.2, 1)',
+                          position: 'absolute',
+                          top: widgetEditMode ? '1rem' : '0',
+                          left: widgetEditMode ? '1.5rem' : '0',
+                          right: widgetEditMode ? '1.5rem' : '0',
+                          bottom: widgetEditMode ? '45%' : '0',
+                          borderRadius: widgetEditMode ? '1rem' : '0',
+                          border: widgetEditMode
+                            ? '1px solid rgb(63 63 70)'
+                            : '1px solid transparent',
+                          boxShadow: widgetEditMode
+                            ? '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+                            : '0 0 0 0 rgba(0, 0, 0, 0)',
                         }}
-                        className={`flex h-full flex-col bg-zinc-900 text-zinc-100 w-full ${
-                          widgetEditMode ? 'max-w-3xl' : 'max-w-none'
-                        }`}
+                        className="bg-zinc-900 overflow-hidden"
                       >
-                        {/* Widget Preview - fullscreen normally, floats on top when editing */}
-                        <div
-                          style={{
-                            transition:
-                              'all 400ms cubic-bezier(0.4, 0, 0.2, 1)',
-                          }}
-                          className={`relative bg-zinc-900 overflow-hidden ${
-                            widgetEditMode
-                              ? 'm-4 h-[40%] shrink-0 rounded-2xl border border-zinc-700 shadow-2xl shadow-black/50'
-                              : 'm-0 h-full w-full rounded-none border-transparent shadow-none'
-                          }`}
-                        >
-                          {/* Fullscreen button when in edit mode */}
-                          {widgetEditMode && (
-                            <button
-                              type="button"
-                              onClick={closeWidgetEditMode}
-                              className="absolute right-3 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80 text-zinc-400 backdrop-blur-sm transition-all hover:bg-zinc-700 hover:text-zinc-100 hover:scale-105"
-                              aria-label="Fullscreen"
-                              title="Exit to fullscreen"
-                            >
-                              <Maximize2 className="h-4 w-4" />
-                            </button>
-                          )}
-
-                          {/* Floating input when NOT in edit mode */}
-                          {!widgetEditMode &&
-                            selectedWidgetDetail?.componentCode && (
-                              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6 sm:px-6">
-                                <div className="pointer-events-auto w-full max-w-3xl">
-                                  <form onSubmit={handleWidgetEditSubmit}>
-                                    <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/95 py-2 pl-4 pr-2 shadow-xl shadow-black/40 backdrop-blur-sm transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
-                                      <textarea
-                                        ref={(el) => {
-                                          if (el) {
-                                            el.style.height = 'auto';
-                                            el.style.height = `${Math.min(
-                                              el.scrollHeight,
-                                              200
-                                            )}px`;
-                                          }
-                                        }}
-                                        value={widgetEditInput}
-                                        onChange={(e) => {
-                                          setWidgetEditInput(e.target.value);
-                                          const target = e.target;
-                                          target.style.height = 'auto';
-                                          target.style.height = `${Math.min(
-                                            target.scrollHeight,
-                                            200
-                                          )}px`;
-                                        }}
-                                        onKeyDown={handleWidgetEditKeyDown}
-                                        rows={1}
-                                        placeholder="Ask to change this UI..."
-                                        className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-                                      />
-                                      {isWidgetEditLoading ? (
-                                        <button
-                                          type="button"
-                                          onClick={stopWidgetEditGeneration}
-                                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
-                                          aria-label="Stop generating"
-                                        >
-                                          <Square className="h-3.5 w-3.5 fill-current" />
-                                        </button>
-                                      ) : (
-                                        <button
-                                          type="submit"
-                                          disabled={!widgetEditInput.trim()}
-                                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-                                          aria-label="Send message"
-                                        >
-                                          <Send className="h-4 w-4" />
-                                        </button>
-                                      )}
-                                    </div>
-                                    <p className="mt-2 text-center text-xs text-zinc-500">
-                                      {isWidgetEditLoading
-                                        ? 'Press Escape or click stop to cancel'
-                                        : 'Press Enter to send, Shift + Enter for new line'}
-                                    </p>
-                                  </form>
-                                </div>
-                              </div>
-                            )}
-
-                          {isLoadingWidgetDetail ? (
-                            <div className="flex h-full items-center justify-center bg-zinc-900">
-                              <div className="flex flex-col items-center gap-3">
-                                <Loader2 className="h-10 w-10 animate-spin text-zinc-400" />
-                                <p className="text-sm text-zinc-400">
-                                  Loading widget...
-                                </p>
-                              </div>
-                            </div>
-                          ) : selectedWidgetDetail?.status === 'generating' ? (
-                            <div className="flex h-full items-center justify-center bg-zinc-900">
-                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="relative">
-                                  <div className="h-16 w-16 rounded-full border-4 border-zinc-700" />
-                                  <div className="absolute inset-0 h-16 w-16 animate-spin rounded-full border-4 border-transparent border-t-amber-500" />
-                                </div>
-                                <div>
-                                  <p className="text-lg font-medium text-zinc-300">
-                                    Generating widget...
-                                  </p>
-                                  <p className="mt-1 text-sm text-zinc-500">
-                                    This may take a moment
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          ) : selectedWidgetDetail?.status === 'error' ? (
-                            <div className="flex h-full items-center justify-center bg-zinc-900">
-                              <div className="flex flex-col items-center gap-4 text-center px-6">
-                                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-900/20">
-                                  <AlertCircle className="h-8 w-8 text-red-400" />
-                                </div>
-                                <div>
-                                  <p className="text-lg font-medium text-red-300">
-                                    Failed to generate widget
-                                  </p>
-                                  <p className="mt-2 max-w-md text-sm text-zinc-500">
-                                    {selectedWidgetDetail.errorMessage ||
-                                      'An unknown error occurred while generating this widget'}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          ) : selectedWidgetDetail?.componentCode ? (
-                            <WidgetRenderer
-                              widgetId={selectedWidgetId}
-                              componentCode={selectedWidgetDetail.componentCode}
-                              dataItems={selectedWidgetData}
-                              onDataChange={handleWidgetDataChange}
-                              className="h-full w-full"
-                            />
-                          ) : (
-                            <div className="flex h-full items-center justify-center bg-zinc-900">
-                              <div className="flex flex-col items-center gap-4 text-center">
-                                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800">
-                                  <LayoutDashboard className="h-8 w-8 text-zinc-600" />
-                                </div>
-                                <p className="text-sm text-zinc-500">
-                                  No widget content available
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Conversation Panel - appears below widget when editing */}
+                        {/* Fullscreen button when in edit mode */}
                         {widgetEditMode && (
-                          <section className="relative flex min-h-0 grow flex-col animate-in fade-in slide-in-from-bottom-4 duration-300">
-                            <div className="flex grow flex-col gap-3 overflow-y-auto p-6">
-                              {widgetEditMessages.length === 0 ? (
-                                <div className="flex grow items-center justify-center text-sm text-zinc-300">
-                                  Ask to make changes to the UI above.
-                                </div>
-                              ) : (
-                                widgetEditMessages.map((msg, idx) => (
-                                  <article
-                                    key={idx}
-                                    className={`flex ${
-                                      msg.role === 'user'
-                                        ? 'justify-end'
-                                        : 'justify-start'
-                                    }`}
-                                  >
-                                    <div
-                                      className={`text-base leading-7 ${
-                                        msg.role === 'user'
-                                          ? 'max-w-[80%] rounded-2xl bg-zinc-700 px-4 py-3 text-zinc-100'
-                                          : 'w-full px-2 py-2 text-zinc-100'
-                                      }`}
-                                    >
-                                      <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
-                                        className="max-w-none break-words"
-                                        components={{
-                                          h1: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <h1 className="mt-8 mb-4 text-2xl font-bold first:mt-0">
-                                              {children}
-                                            </h1>
-                                          ),
-                                          h2: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <h2 className="mt-8 mb-4 text-xl font-bold first:mt-0">
-                                              {children}
-                                            </h2>
-                                          ),
-                                          h3: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <h3 className="mt-6 mb-3 text-lg font-bold first:mt-0">
-                                              {children}
-                                            </h3>
-                                          ),
-                                          p: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <p className="my-4 first:mt-0 last:mb-0">
-                                              {children}
-                                            </p>
-                                          ),
-                                          ul: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <ul className="mt-4 mb-2 list-disc pl-6">
-                                              {children}
-                                            </ul>
-                                          ),
-                                          ol: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <ol className="mt-4 mb-2 list-decimal pl-6">
-                                              {children}
-                                            </ol>
-                                          ),
-                                          li: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <li className="my-1">{children}</li>
-                                          ),
-                                          blockquote: ({
-                                            children,
-                                          }: {
-                                            children?: ReactNode;
-                                          }) => (
-                                            <blockquote className="my-4 border-l-4 border-zinc-600 pl-4 italic">
-                                              {children}
-                                            </blockquote>
-                                          ),
-                                          hr: () => (
-                                            <hr className="my-6 border-zinc-700" />
-                                          ),
-                                          code({
-                                            inline,
-                                            className,
-                                            children,
-                                            ...props
-                                          }: {
-                                            inline?: boolean;
-                                            className?: string;
-                                            children?: ReactNode;
-                                          }) {
-                                            if (inline) {
-                                              return (
-                                                <code
-                                                  className="rounded bg-zinc-600 px-1.5 py-0.5 text-sm"
-                                                  {...props}
-                                                >
-                                                  {children}
-                                                </code>
-                                              );
-                                            }
-                                            return (
-                                              <pre className="my-4 overflow-auto rounded-lg bg-zinc-800 p-4 text-sm text-zinc-100">
-                                                <code
-                                                  {...props}
-                                                  className={className}
-                                                >
-                                                  {children}
-                                                </code>
-                                              </pre>
-                                            );
-                                          },
-                                        }}
-                                      >
-                                        {msg.content}
-                                      </ReactMarkdown>
-                                    </div>
-                                  </article>
-                                ))
-                              )}
-                              <div ref={widgetEditBottomRef} />
-                            </div>
-                          </section>
+                          <button
+                            type="button"
+                            onClick={closeWidgetEditMode}
+                            className="absolute right-3 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80 text-zinc-400 backdrop-blur-sm transition-all hover:bg-zinc-700 hover:text-zinc-100 hover:scale-105"
+                            aria-label="Fullscreen"
+                            title="Exit to fullscreen"
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </button>
                         )}
 
-                        {/* Input box at bottom - same as main chat */}
-                        {widgetEditMode && (
-                          <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
-                            {error ? (
-                              <div className="mb-3 text-sm text-red-200">
-                                {error}
-                              </div>
-                            ) : null}
-                            <form onSubmit={handleWidgetEditSubmit}>
-                              <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-4 pr-2 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
-                                <textarea
-                                  ref={(el) => {
-                                    if (el) {
-                                      el.style.height = 'auto';
-                                      el.style.height = `${Math.min(
-                                        el.scrollHeight,
-                                        200
-                                      )}px`;
-                                    }
-                                  }}
-                                  value={widgetEditInput}
-                                  onChange={(e) => {
-                                    setWidgetEditInput(e.target.value);
-                                    const target = e.target;
-                                    target.style.height = 'auto';
-                                    target.style.height = `${Math.min(
-                                      target.scrollHeight,
-                                      200
-                                    )}px`;
-                                  }}
-                                  onKeyDown={handleWidgetEditKeyDown}
-                                  rows={1}
-                                  placeholder="Ask to change this UI..."
-                                  className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-                                />
-                                {isWidgetEditLoading ? (
-                                  <button
-                                    type="button"
-                                    onClick={stopWidgetEditGeneration}
-                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
-                                    aria-label="Stop generating"
-                                  >
-                                    <Square className="h-3.5 w-3.5 fill-current" />
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="submit"
-                                    disabled={!widgetEditInput.trim()}
-                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-                                    aria-label="Send message"
-                                  >
-                                    <Send className="h-4 w-4" />
-                                  </button>
-                                )}
-                              </div>
-                              <p className="mt-2 text-center text-xs text-zinc-500">
-                                {isWidgetEditLoading
-                                  ? 'Press Escape or click stop to cancel'
-                                  : 'Press Enter to send, Shift + Enter for new line'}
+                        {isLoadingWidgetDetail ? (
+                          <div className="flex h-full items-center justify-center bg-zinc-900">
+                            <div className="flex flex-col items-center gap-3">
+                              <Loader2 className="h-10 w-10 animate-spin text-zinc-400" />
+                              <p className="text-sm text-zinc-400">
+                                Loading widget...
                               </p>
-                            </form>
+                            </div>
+                          </div>
+                        ) : selectedWidgetDetail?.status === 'generating' ? (
+                          <div className="flex h-full items-center justify-center bg-zinc-900">
+                            <div className="flex flex-col items-center gap-4 text-center">
+                              <div className="relative">
+                                <div className="h-16 w-16 rounded-full border-4 border-zinc-700" />
+                                <div className="absolute inset-0 h-16 w-16 animate-spin rounded-full border-4 border-transparent border-t-amber-500" />
+                              </div>
+                              <div>
+                                <p className="text-lg font-medium text-zinc-300">
+                                  Generating widget...
+                                </p>
+                                <p className="mt-1 text-sm text-zinc-500">
+                                  This may take a moment
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : selectedWidgetDetail?.status === 'error' ? (
+                          <div className="flex h-full items-center justify-center bg-zinc-900">
+                            <div className="flex flex-col items-center gap-4 text-center px-6">
+                              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-900/20">
+                                <AlertCircle className="h-8 w-8 text-red-400" />
+                              </div>
+                              <div>
+                                <p className="text-lg font-medium text-red-300">
+                                  Failed to generate widget
+                                </p>
+                                <p className="mt-2 max-w-md text-sm text-zinc-500">
+                                  {selectedWidgetDetail.errorMessage ||
+                                    'An unknown error occurred while generating this widget'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : selectedWidgetDetail?.componentCode ? (
+                          <WidgetRenderer
+                            widgetId={selectedWidgetId}
+                            componentCode={selectedWidgetDetail.componentCode}
+                            dataItems={selectedWidgetData}
+                            onDataChange={handleWidgetDataChange}
+                            className="h-full w-full"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center bg-zinc-900">
+                            <div className="flex flex-col items-center gap-4 text-center">
+                              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800">
+                                <LayoutDashboard className="h-8 w-8 text-zinc-600" />
+                              </div>
+                              <p className="text-sm text-zinc-500">
+                                No widget content available
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
+
+                      {/* Conversation Panel - positioned at bottom when editing */}
+                      <div
+                        style={{
+                          transition: 'all 700ms cubic-bezier(0.4, 0, 0.2, 1)',
+                          position: 'absolute',
+                          top: widgetEditMode ? '56%' : '100%',
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          opacity: widgetEditMode ? 1 : 0,
+                          pointerEvents: widgetEditMode ? 'auto' : 'none',
+                        }}
+                        className="flex justify-center overflow-hidden"
+                      >
+                        <section className="relative flex min-h-0 w-full max-w-3xl flex-col px-4 sm:px-6">
+                          <div className="flex grow flex-col gap-3 overflow-y-auto py-6 pb-24">
+                            {widgetEditMessages.length === 0 ? (
+                              <div className="flex grow items-center justify-center text-sm text-zinc-300">
+                                Ask to make changes to the UI above.
+                              </div>
+                            ) : (
+                              widgetEditMessages.map((msg, idx) => (
+                                <article
+                                  key={idx}
+                                  className={`flex ${
+                                    msg.role === 'user'
+                                      ? 'justify-end'
+                                      : 'justify-start'
+                                  }`}
+                                >
+                                  <div
+                                    className={`text-base leading-7 ${
+                                      msg.role === 'user'
+                                        ? 'max-w-[80%] rounded-2xl bg-zinc-700 px-4 py-3 text-zinc-100'
+                                        : 'w-full px-2 py-2 text-zinc-100'
+                                    }`}
+                                  >
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkGfm]}
+                                      className="max-w-none break-words"
+                                      components={{
+                                        h1: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <h1 className="mt-8 mb-4 text-2xl font-bold first:mt-0">
+                                            {children}
+                                          </h1>
+                                        ),
+                                        h2: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <h2 className="mt-8 mb-4 text-xl font-bold first:mt-0">
+                                            {children}
+                                          </h2>
+                                        ),
+                                        h3: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <h3 className="mt-6 mb-3 text-lg font-bold first:mt-0">
+                                            {children}
+                                          </h3>
+                                        ),
+                                        p: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <p className="my-4 first:mt-0 last:mb-0">
+                                            {children}
+                                          </p>
+                                        ),
+                                        ul: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <ul className="mt-4 mb-2 list-disc pl-6">
+                                            {children}
+                                          </ul>
+                                        ),
+                                        ol: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <ol className="mt-4 mb-2 list-decimal pl-6">
+                                            {children}
+                                          </ol>
+                                        ),
+                                        li: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <li className="my-1">{children}</li>
+                                        ),
+                                        blockquote: ({
+                                          children,
+                                        }: {
+                                          children?: ReactNode;
+                                        }) => (
+                                          <blockquote className="my-4 border-l-4 border-zinc-600 pl-4 italic">
+                                            {children}
+                                          </blockquote>
+                                        ),
+                                        hr: () => (
+                                          <hr className="my-6 border-zinc-700" />
+                                        ),
+                                        code({
+                                          inline,
+                                          className,
+                                          children,
+                                          ...props
+                                        }: {
+                                          inline?: boolean;
+                                          className?: string;
+                                          children?: ReactNode;
+                                        }) {
+                                          if (inline) {
+                                            return (
+                                              <code
+                                                className="rounded bg-zinc-600 px-1.5 py-0.5 text-sm"
+                                                {...props}
+                                              >
+                                                {children}
+                                              </code>
+                                            );
+                                          }
+                                          return (
+                                            <pre className="my-4 overflow-auto rounded-lg bg-zinc-800 p-4 text-sm text-zinc-100">
+                                              <code
+                                                {...props}
+                                                className={className}
+                                              >
+                                                {children}
+                                              </code>
+                                            </pre>
+                                          );
+                                        },
+                                      }}
+                                    >
+                                      {msg.content}
+                                    </ReactMarkdown>
+                                  </div>
+                                </article>
+                              ))
+                            )}
+                            <div ref={widgetEditBottomRef} />
+                          </div>
+                        </section>
+                      </div>
                     </div>
+
+                    {/* Fixed Input box at bottom - always in same position */}
+                    {selectedWidgetDetail?.componentCode && (
+                      <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6 sm:px-6">
+                        <div className="w-full max-w-3xl">
+                          <form onSubmit={handleWidgetEditSubmit}>
+                            <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/95 py-2 pl-4 pr-2 shadow-xl shadow-black/40 backdrop-blur-sm transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                              <textarea
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto';
+                                    el.style.height = `${Math.min(
+                                      el.scrollHeight,
+                                      200
+                                    )}px`;
+                                  }
+                                }}
+                                value={widgetEditInput}
+                                onChange={(e) => {
+                                  setWidgetEditInput(e.target.value);
+                                  const target = e.target;
+                                  target.style.height = 'auto';
+                                  target.style.height = `${Math.min(
+                                    target.scrollHeight,
+                                    200
+                                  )}px`;
+                                }}
+                                onKeyDown={handleWidgetEditKeyDown}
+                                rows={1}
+                                placeholder="Ask to change this UI..."
+                                className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                              />
+                              {isWidgetEditLoading ? (
+                                <button
+                                  type="button"
+                                  onClick={stopWidgetEditGeneration}
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
+                                  aria-label="Stop generating"
+                                >
+                                  <Square className="h-3.5 w-3.5 fill-current" />
+                                </button>
+                              ) : (
+                                <button
+                                  type="submit"
+                                  disabled={!widgetEditInput.trim()}
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                                  aria-label="Send message"
+                                >
+                                  <Send className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                            <p className="mt-2 text-center text-xs text-zinc-500">
+                              {isWidgetEditLoading
+                                ? 'Press Escape or click stop to cancel'
+                                : 'Press Enter to send, Shift + Enter for new line'}
+                            </p>
+                          </form>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* Overview - Widget Grid */

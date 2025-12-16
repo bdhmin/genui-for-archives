@@ -80,12 +80,13 @@ body {
   overflow: hidden;
 }
 
-/* Sandpack full height overrides */
+/* Sandpack full height and background overrides */
 .sp-wrapper,
 .sp-custom-wrapper {
   height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
+  background-color: #18181b !important;
 }
 
 .sp-layout,
@@ -93,19 +94,29 @@ body {
   height: 100% !important;
   min-height: 0 !important;
   flex: 1 !important;
+  background-color: #18181b !important;
+  border: none !important;
 }
 
 .sp-stack,
 .sp-custom-stack {
   height: 100% !important;
+  background-color: #18181b !important;
 }
 
 .sp-preview-container {
   height: 100% !important;
+  background-color: #18181b !important;
 }
 
 .sp-preview-iframe {
   height: 100% !important;
+  background-color: #18181b !important;
+}
+
+.sp-preview,
+.sp-preview-actions {
+  background-color: #18181b !important;
 }
 
 /* Slide in from right animation */
