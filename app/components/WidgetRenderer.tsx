@@ -78,7 +78,7 @@ function App() {
   }, []);
 
   return (
-    <div style={{ fontFamily: "'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif" }} className="min-h-screen bg-zinc-900 p-6 antialiased text-zinc-100">
+    <div style={{ fontFamily: "'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif" }} className="min-h-screen bg-zinc-900 p-6 pb-[160px] antialiased text-zinc-100">
       <Widget data={data} onDataChange={handleDataChange} />
     </div>
   );
