@@ -132,3 +132,37 @@ body {
 .slide-in-from-right-4 {
   animation-name: fade-in, slide-in-from-right;
 }
+
+/* Mobile-specific improvements */
+@media (max-width: 767px) {
+  /* Better touch targets */
+  button, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Prevent overscroll bounce on iOS */
+  html {
+    overscroll-behavior: none;
+  }
+  
+  /* Smooth scrolling */
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Hide scrollbars on mobile for cleaner look */
+  .overflow-y-auto::-webkit-scrollbar {
+    display: none;
+  }
+  .overflow-y-auto {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Safe area padding for mobile devices with notches */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
