@@ -27,7 +27,9 @@ import {
   Plus,
   GripVertical,
   Maximize2,
+  LogOut,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 // Dynamically import WidgetRenderer to avoid SSR issues with Sandpack
@@ -168,6 +170,18 @@ export default function ChatPage() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isProgrammaticScrollRef = useRef(false);
+  const router = useRouter();
+
+  // Logout handler
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/api/auth', { method: 'DELETE' });
+      router.push('/login');
+      router.refresh();
+    } catch (err) {
+      console.error('Logout failed:', err);
+    }
+  }, [router]);
 
   // Check if scrolled to bottom (with small threshold)
   const isAtBottom = useCallback(() => {
@@ -1167,9 +1181,11 @@ export default function ChatPage() {
           <div className="flex flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold text-zinc-50">
-                Conversations
+                GenUI from Conversations
               </h2>
-              <p className="text-xs text-zinc-400">Sorted by created date</p>
+              <p className="text-xs text-zinc-400">
+                Automatically Generates UIs from Past Conversations
+              </p>
             </div>
             {/* Dashboard Button */}
             <button
@@ -1392,6 +1408,15 @@ export default function ChatPage() {
               })
             )}
           </div>
+          {/* Logout Button */}
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            className="mt-auto flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 text-sm text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-200"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Logout</span>
+          </button>
         </aside>
         {/* Main Content Area - Chat or Dashboard */}
         <div className="flex min-h-0 grow">
