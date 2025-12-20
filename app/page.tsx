@@ -1239,51 +1239,8 @@ export default function ChatPage() {
           throw new Error(data.error || 'Failed to add conversation to widget');
         }
 
-        // Wait for edge function to process (schema evolution + data extraction)
-        // Then poll for updates
-        const pollForUpdates = async (attempts = 0): Promise<void> => {
-          if (attempts >= 10) {
-            console.log('[DropOnWidget] Max polling attempts reached');
-            return;
-          }
-
-          // Wait progressively longer between attempts
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1500 + attempts * 500)
-          );
-
-          // Refresh widget detail
-          if (selectedWidgetId === widgetId) {
-            await fetchWidgetDetail(widgetId);
-          }
-
-          // Check if data was added by fetching widget
-          const checkRes = await fetch(`/api/widgets/${widgetId}`);
-          if (checkRes.ok) {
-            const checkData = await checkRes.json();
-            const dataItems = checkData.dataItems || [];
-            const hasConversationData = dataItems.some(
-              (item: { sourceConversationId?: string }) =>
-                item.sourceConversationId === conversationId
-            );
-
-            if (!hasConversationData && attempts < 9) {
-              // Keep polling if data not yet available
-              console.log(
-                `[DropOnWidget] Data not ready, polling attempt ${attempts + 1}`
-              );
-              return pollForUpdates(attempts + 1);
-            }
-          }
-        };
-
-        // Start polling
-        await pollForUpdates();
-
-        // Final refresh of widgets list
+        // Refresh widgets list and widget detail (no polling - data extraction happens async)
         await fetchWidgets();
-
-        // Final refresh of widget detail if selected
         if (selectedWidgetId === widgetId) {
           await fetchWidgetDetail(widgetId);
         }
@@ -1325,47 +1282,7 @@ export default function ChatPage() {
           );
         }
 
-        const result = await res.json();
-
-        // Poll for widget creation to complete
-        const pollForWidget = async (attempts = 0): Promise<void> => {
-          if (attempts >= 15) {
-            console.log('[DropOnNewWidget] Max polling attempts reached');
-            return;
-          }
-
-          await new Promise((resolve) =>
-            setTimeout(resolve, 2000 + attempts * 500)
-          );
-
-          // Refresh widgets list
-          await fetchWidgets();
-
-          // If we got a widgetId from the response, check if it's ready
-          if (result.widgetId) {
-            const checkRes = await fetch(`/api/widgets/${result.widgetId}`);
-            if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              if (checkData.widget?.status === 'active') {
-                console.log('[DropOnNewWidget] Widget is ready');
-                return;
-              }
-            }
-          }
-
-          // Keep polling
-          console.log(
-            `[DropOnNewWidget] Widget not ready, polling attempt ${
-              attempts + 1
-            }`
-          );
-          return pollForWidget(attempts + 1);
-        };
-
-        // Start polling
-        await pollForWidget();
-
-        // Final refresh
+        // Refresh widgets list (no polling - widget generation happens async)
         await fetchWidgets();
       } catch (err) {
         console.error('Failed to create widget from conversation:', err);

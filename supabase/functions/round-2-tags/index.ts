@@ -292,78 +292,46 @@ Return your response as JSON.`,
     }
 
     const generateWidgetUrl = `${supabaseUrl}/functions/v1/generate-widget-ui`;
-    const updateWidgetDataUrl = `${supabaseUrl}/functions/v1/update-widget-data`;
     
     let widgetsToGenerate = 0;
-    let dataUpdatesTriggered = 0;
 
     const widgetGenerationResults: { globalTagId: string; success: boolean; error?: string }[] = [];
 
+    // Only trigger widget generation for tags that don't have active widgets
+    // Data updates are NOT triggered here - they happen via add-conversation or chat routes
+    // This prevents overwhelming the worker pool with too many simultaneous edge function calls
     for (const globalTag of allGlobalTags || []) {
       const existingWidget = widgetByGlobalTag.get(globalTag.id);
-      const conversationIds = globalTag.conversation_global_tags?.map(
-        (c: { conversation_id: string }) => c.conversation_id
-      ) || [];
 
       if (existingWidget && existingWidget.status === "active") {
-        // Widget exists - trigger data update for each linked conversation
-        // The update function will skip conversations that already have data
-        for (const conversationId of conversationIds) {
-          fetch(updateWidgetDataUrl, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${supabaseServiceKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ 
-              widget_id: existingWidget.id, 
-              conversation_id: conversationId 
-            }),
-          }).catch((err) => console.error(`Failed to trigger data update:`, err));
-          dataUpdatesTriggered++;
-        }
+        // Widget already exists and is active - skip, data updates happen elsewhere
+        console.log(`[Round2] Widget already active for ${globalTag.id}, skipping`);
       } else {
-        // No widget or widget is in error/generating state - trigger generation
+        // No widget or widget is in error/generating state - trigger generation (fire-and-forget)
         console.log(`[Round2] Triggering widget generation for global tag: ${globalTag.id} (${globalTag.tag})`);
-        try {
-          const genResponse = await fetch(generateWidgetUrl, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${supabaseServiceKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ global_tag_id: globalTag.id }),
+        widgetsToGenerate++;
+        
+        // Fire-and-forget: don't await, just trigger the generation
+        fetch(generateWidgetUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${supabaseServiceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ global_tag_id: globalTag.id }),
+        })
+          .then(async (genResponse) => {
+            console.log(`[Round2] Widget gen response status for ${globalTag.id}: ${genResponse.status}`);
+          })
+          .catch((err) => {
+            console.error(`[Round2] Failed to trigger widget generation for ${globalTag.id}:`, err);
           });
-          
-          console.log(`[Round2] Widget gen response status: ${genResponse.status}`);
-          
-          const responseText = await genResponse.text();
-          console.log(`[Round2] Widget gen raw response for ${globalTag.id}:`, responseText.substring(0, 500));
-          
-          let genResult;
-          try {
-            genResult = JSON.parse(responseText);
-          } catch {
-            genResult = { success: false, error: `Non-JSON response: ${responseText.substring(0, 200)}` };
-          }
-          
-          widgetGenerationResults.push({
-            globalTagId: globalTag.id,
-            success: genResult.success === true,
-            error: genResult.error || (genResponse.status !== 200 ? `HTTP ${genResponse.status}` : undefined),
-          });
-          
-          if (genResult.success) {
-            widgetsToGenerate++;
-          }
-        } catch (err) {
-          console.error(`[Round2] Failed to trigger widget generation for ${globalTag.id}:`, err);
-          widgetGenerationResults.push({
-            globalTagId: globalTag.id,
-            success: false,
-            error: err instanceof Error ? err.message : "Unknown error",
-          });
-        }
+        
+        widgetGenerationResults.push({
+          globalTagId: globalTag.id,
+          success: true, // We just triggered it, actual success is async
+          error: undefined,
+        });
       }
     }
 
@@ -375,7 +343,6 @@ Return your response as JSON.`,
         mappingsCount: mappingsToInsert.length,
         widgetGenerationTriggered: widgetsToGenerate,
         widgetGenerationResults: widgetGenerationResults,
-        dataUpdatesTriggered: dataUpdatesTriggered,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

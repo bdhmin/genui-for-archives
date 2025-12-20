@@ -383,17 +383,24 @@ Update the component to support the evolved schema while maintaining backward co
         .delete()
         .eq("widget_id", widget_id);
 
-      // Trigger update-widget-data for each conversation
+      // Trigger update-widget-data for each conversation with staggered delays
+      // to avoid overwhelming the worker pool
       const updateDataUrl = `${supabaseUrl}/functions/v1/update-widget-data`;
-      for (const convId of conversationIds) {
-        fetch(updateDataUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${supabaseServiceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ widget_id, conversation_id: convId }),
-        }).catch(err => console.error(`[EvolveSchema] Error updating data for ${convId}:`, err));
+      const DELAY_BETWEEN_CALLS_MS = 500; // 500ms between each call
+      
+      for (let i = 0; i < conversationIds.length; i++) {
+        const convId = conversationIds[i];
+        // Use setTimeout to stagger the calls
+        setTimeout(() => {
+          fetch(updateDataUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${supabaseServiceKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ widget_id, conversation_id: convId }),
+          }).catch(err => console.error(`[EvolveSchema] Error updating data for ${convId}:`, err));
+        }, i * DELAY_BETWEEN_CALLS_MS);
       }
 
     } else {

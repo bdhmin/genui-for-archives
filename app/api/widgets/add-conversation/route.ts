@@ -172,57 +172,93 @@ export async function POST(req: Request) {
       });
 
     } else {
-      // Creating new widget from conversation
+      // Creating new widget from conversation - directly create a unique global tag and widget
       console.log('[AddConversation] Creating new widget from conversation:', conversationId);
 
-      // First, trigger Round 2 to create/assign global tags
-      const round2Url = `${process.env.SUPABASE_URL}/functions/v1/round-2-tags`;
+      // Get conversation tags to create a meaningful global tag name
+      const { data: convTags } = await supabase
+        .from('conversation_tags')
+        .select('tag')
+        .eq('conversation_id', conversationId)
+        .limit(3);
+
+      // Create a unique global tag name based on conversation title or first tag
+      const tagName = conversation.title || 
+        (convTags && convTags.length > 0 ? convTags[0].tag.substring(0, 50) : `Widget for ${conversationId.substring(0, 8)}`);
+
+      // Create a new global tag specifically for this widget
+      const { data: newGlobalTag, error: globalTagError } = await supabase
+        .from('global_tags')
+        .insert({ tag: tagName })
+        .select()
+        .single();
+
+      if (globalTagError || !newGlobalTag) {
+        console.error('[AddConversation] Failed to create global tag:', globalTagError);
+        return NextResponse.json(
+          { error: 'Failed to create global tag for widget' },
+          { status: 500 }
+        );
+      }
+
+      console.log('[AddConversation] Created global tag:', newGlobalTag.id, newGlobalTag.tag);
+
+      // Link the conversation to this new global tag
+      const { error: linkError } = await supabase
+        .from('conversation_global_tags')
+        .upsert(
+          { conversation_id: conversationId, global_tag_id: newGlobalTag.id },
+          { onConflict: 'conversation_id,global_tag_id' }
+        );
+
+      if (linkError) {
+        console.error('[AddConversation] Failed to link conversation to global tag:', linkError);
+      }
+
+      // Trigger widget generation for this global tag
+      const generateUrl = `${process.env.SUPABASE_URL}/functions/v1/generate-widget-ui`;
       
       try {
-        const round2Response = await fetch(round2Url, {
+        console.log('[AddConversation] Triggering widget generation for global tag:', newGlobalTag.id);
+        const genResponse = await fetch(generateUrl, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ global_tag_id: newGlobalTag.id }),
         });
 
-        if (!round2Response.ok) {
-          const errorText = await round2Response.text();
-          console.error('[AddConversation] Round 2 failed:', errorText);
+        if (!genResponse.ok) {
+          const errorText = await genResponse.text();
+          console.error('[AddConversation] Widget generation failed:', errorText);
         } else {
-          const round2Result = await round2Response.json();
-          console.log('[AddConversation] Round 2 result:', round2Result);
+          const genResult = await genResponse.json();
+          console.log('[AddConversation] Widget generation result:', genResult);
+          
+          // Return the widget ID from the generation result
+          return NextResponse.json({
+            success: true,
+            action: 'created_widget',
+            widgetId: genResult.widgetId || null,
+            conversationId,
+          });
         }
-      } catch (round2Error) {
-        console.error('[AddConversation] Error calling round-2-tags:', round2Error);
+      } catch (genError) {
+        console.error('[AddConversation] Error calling generate-widget-ui:', genError);
       }
 
-      // Wait a bit for widget generation to be triggered
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Find the widget that was created for this conversation
-      const { data: conversationGlobalTags } = await supabase
-        .from('conversation_global_tags')
-        .select('global_tag_id')
-        .eq('conversation_id', conversationId);
-
-      let newWidgetId: string | null = null;
-      if (conversationGlobalTags && conversationGlobalTags.length > 0) {
-        const { data: newWidget } = await supabase
-          .from('ui_widgets')
-          .select('id')
-          .eq('global_tag_id', conversationGlobalTags[0].global_tag_id)
-          .single();
-        
-        newWidgetId = newWidget?.id || null;
-      }
+      // Fallback: try to find widget by global tag
+      const { data: newWidget } = await supabase
+        .from('ui_widgets')
+        .select('id')
+        .eq('global_tag_id', newGlobalTag.id)
+        .single();
 
       return NextResponse.json({
         success: true,
         action: 'created_widget',
-        widgetId: newWidgetId,
+        widgetId: newWidget?.id || null,
         conversationId,
       });
     }
