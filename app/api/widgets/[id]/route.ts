@@ -41,6 +41,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         error_message,
         created_at,
         updated_at,
+        code_hash,
         global_tags (
           tag,
           conversation_global_tags (
@@ -86,6 +87,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         ) || [],
         createdAt: widget.created_at,
         updatedAt: widget.updated_at,
+        codeHash: widget.code_hash,
       },
       dataItems: (widgetData as WidgetDataRow[] || []).map((item) => ({
         id: item.id,
@@ -101,16 +103,15 @@ export async function GET(req: Request, { params }: RouteParams) {
   }
 }
 
-// PATCH: Update widget data
+// PATCH: Update widget data or widget metadata (like last_opened_at)
 export async function PATCH(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { dataItems } = body as { dataItems: { id: string; data: Record<string, unknown> }[] };
-
-    if (!dataItems || !Array.isArray(dataItems)) {
-      return NextResponse.json({ error: 'dataItems array is required' }, { status: 400 });
-    }
+    const { dataItems, updateLastOpened } = body as { 
+      dataItems?: { id: string; data: Record<string, unknown> }[];
+      updateLastOpened?: boolean;
+    };
 
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
@@ -127,6 +128,23 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     if (widgetError || !widget) {
       return NextResponse.json({ error: 'Widget not found' }, { status: 404 });
+    }
+
+    // Update last_opened_at if requested
+    if (updateLastOpened) {
+      const { error: updateError } = await supabase
+        .from('ui_widgets')
+        .update({ last_opened_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (updateError) {
+        console.error(`[Widget API] Error updating last_opened_at for ${id}:`, updateError);
+      }
+    }
+
+    // If no dataItems to update, just return success
+    if (!dataItems || !Array.isArray(dataItems) || dataItems.length === 0) {
+      return NextResponse.json({ success: true });
     }
 
     // Process each data item
@@ -168,26 +186,50 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true, dataItems: results });
   } catch (error) {
     console.error('[Widget API] Unexpected error:', error);
-    return NextResponse.json({ error: 'Failed to update widget data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to update widget' }, { status: 500 });
   }
 }
 
-// DELETE: Delete widget data item
+// DELETE: Delete widget data item OR entire widget
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
     const url = new URL(req.url);
     const dataItemId = url.searchParams.get('dataItemId');
-
-    if (!dataItemId) {
-      return NextResponse.json({ error: 'dataItemId is required' }, { status: 400 });
-    }
+    const deleteWidget = url.searchParams.get('deleteWidget') === 'true';
 
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
     }
 
     const supabase = getSupabaseServerClient();
+
+    // Delete entire widget
+    if (deleteWidget) {
+      // First delete all widget data (CASCADE should handle this, but being explicit)
+      await supabase
+        .from('ui_widget_data')
+        .delete()
+        .eq('widget_id', id);
+
+      // Delete the widget itself
+      const { error } = await supabase
+        .from('ui_widgets')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error(`[Widget API] Error deleting widget ${id}:`, error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, deleted: 'widget' });
+    }
+
+    // Delete widget data item
+    if (!dataItemId) {
+      return NextResponse.json({ error: 'dataItemId is required (or use deleteWidget=true to delete the widget)' }, { status: 400 });
+    }
 
     const { error } = await supabase
       .from('ui_widget_data')
@@ -200,10 +242,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, deleted: 'dataItem' });
   } catch (error) {
     console.error('[Widget API] Unexpected error:', error);
-    return NextResponse.json({ error: 'Failed to delete widget data' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
   }
 }
 

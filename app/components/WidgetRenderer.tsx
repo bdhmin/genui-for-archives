@@ -9,6 +9,7 @@ import {
   useSandpack,
 } from '@codesandbox/sandpack-react';
 import { Loader2, AlertCircle, RefreshCw, Terminal, ChevronDown, ChevronUp, Wrench, Code, X } from 'lucide-react';
+import { toPng } from 'html-to-image';
 
 type WidgetData = {
   id: string;
@@ -28,8 +29,21 @@ type WidgetRendererProps = {
   dataItems: WidgetData[];
   onDataChange?: (dataItems: WidgetData[]) => void;
   onAskToFix?: (errorMessage: string) => void;
+  onThumbnailCaptured?: (thumbnailUrl: string) => void;
+  existingCodeHash?: string | null;
   className?: string;
 };
+
+// Generate a simple hash from component code
+function generateCodeHash(code: string): string {
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) {
+    const char = code.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return hash.toString(36);
+}
 
 // Strip export statements from the component code to avoid conflicts
 function stripExports(code: string): string {
@@ -220,6 +234,8 @@ export default function WidgetRenderer({
   dataItems,
   onDataChange,
   onAskToFix,
+  onThumbnailCaptured,
+  existingCodeHash,
   className = '',
 }: WidgetRendererProps) {
   const [isLoading, setIsLoading] = useState(true);
@@ -231,6 +247,9 @@ export default function WidgetRenderer({
   const dataItemsRef = useRef(dataItems);
   const hasInitializedRef = useRef(false);
   const prevComponentCodeRef = useRef(componentCode);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const hasCapturedThumbnailRef = useRef(false);
+  const currentCodeHash = useMemo(() => generateCodeHash(componentCode), [componentCode]);
 
   // Extract just the data values
   const dataArray = useMemo(() => dataItems.map((item) => item.data), [dataItems]);
@@ -328,6 +347,98 @@ export default function WidgetRenderer({
       setTimeout(() => setIsLoading(false), 100);
     }
   }, []);
+
+  // Capture screenshot after widget loads successfully
+  useEffect(() => {
+    // Only capture if:
+    // 1. Widget has finished loading
+    // 2. No errors
+    // 3. Haven't already captured for this code version
+    // 4. Code hash is different from existing (or no existing hash)
+    if (
+      !isLoading && 
+      !error && 
+      !hasCapturedThumbnailRef.current &&
+      currentCodeHash !== existingCodeHash
+    ) {
+      hasCapturedThumbnailRef.current = true;
+
+      // Wait a bit for the iframe content to fully render
+      const captureTimeout = setTimeout(async () => {
+        try {
+          // Find the Sandpack preview iframe
+          const iframe = previewContainerRef.current?.querySelector('.sp-preview-iframe') as HTMLIFrameElement | null;
+          
+          if (!iframe) {
+            console.warn('[WidgetRenderer] Could not find preview iframe for thumbnail capture');
+            return;
+          }
+
+          // Try to capture the iframe's content document (works if same-origin)
+          let imageData: string | null = null;
+          
+          try {
+            // Attempt to access iframe content (may fail due to cross-origin)
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (iframeDoc?.body) {
+              imageData = await toPng(iframeDoc.body, {
+                backgroundColor: '#18181b',
+                width: 400,
+                height: 300,
+                pixelRatio: 1,
+                skipFonts: true,
+              });
+            }
+          } catch {
+            // If cross-origin, capture the iframe element itself (will be less detailed)
+            console.log('[WidgetRenderer] Cross-origin iframe, capturing container instead');
+            const container = previewContainerRef.current;
+            if (container) {
+              imageData = await toPng(container, {
+                backgroundColor: '#18181b',
+                width: 400,
+                height: 300,
+                pixelRatio: 1,
+                skipFonts: true,
+              });
+            }
+          }
+
+          if (imageData) {
+            // Upload the thumbnail
+            const response = await fetch(`/api/widgets/${widgetId}/thumbnail`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                imageData,
+                codeHash: currentCodeHash,
+              }),
+            });
+
+            if (response.ok) {
+              const result = await response.json();
+              if (result.thumbnailUrl && onThumbnailCaptured) {
+                onThumbnailCaptured(result.thumbnailUrl);
+              }
+            } else {
+              console.error('[WidgetRenderer] Failed to upload thumbnail:', await response.text());
+            }
+          }
+        } catch (err) {
+          console.error('[WidgetRenderer] Error capturing thumbnail:', err);
+        }
+      }, 1500); // Wait 1.5s for content to fully render
+
+      return () => clearTimeout(captureTimeout);
+    }
+  }, [isLoading, error, widgetId, currentCodeHash, existingCodeHash, onThumbnailCaptured]);
+
+  // Reset thumbnail capture flag when component code changes
+  useEffect(() => {
+    if (prevComponentCodeRef.current !== componentCode) {
+      hasCapturedThumbnailRef.current = false;
+    }
+  }, [componentCode]);
 
   const handleAskToFix = useCallback(() => {
     if (error && onAskToFix) {
@@ -516,7 +627,10 @@ root.render(
           }}
         >
           {/* Main preview area */}
-          <div className={`relative flex-1 min-h-0 ${showDebugPanel ? 'max-h-[60%]' : ''}`}>
+          <div 
+            ref={previewContainerRef}
+            className={`relative flex-1 min-h-0 ${showDebugPanel ? 'max-h-[60%]' : ''}`}
+          >
             <SandpackPreview
               showOpenInCodeSandbox={false}
               showRefreshButton={false}

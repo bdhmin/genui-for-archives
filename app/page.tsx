@@ -28,6 +28,10 @@ import {
   GripVertical,
   Maximize2,
   LogOut,
+  CheckSquare,
+  SquareDashed,
+  Merge,
+  Check,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -70,6 +74,9 @@ type Widget = {
   description: string | null;
   status: 'generating' | 'active' | 'error';
   conversationIds: string[];
+  lastOpenedAt: string | null;
+  thumbnailUrl: string | null;
+  codeHash: string | null;
 };
 
 type WidgetDetail = {
@@ -83,6 +90,7 @@ type WidgetDetail = {
   errorMessage: string | null;
   globalTag: string;
   conversationIds: string[];
+  codeHash: string | null;
 };
 
 type WidgetDataItem = {
@@ -117,6 +125,9 @@ export default function ChatPage() {
   const [highlightedConversationIds, setHighlightedConversationIds] = useState<
     string[]
   >([]);
+  const [highlightedWidgetIds, setHighlightedWidgetIds] = useState<Set<string>>(
+    new Set()
+  );
   const [globalTags, setGlobalTags] = useState<GlobalTag[]>([]);
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
@@ -165,6 +176,13 @@ export default function ChatPage() {
   const [isWidgetEditLoading, setIsWidgetEditLoading] = useState(false);
   const widgetEditAbortRef = useRef<AbortController | null>(null);
   const widgetEditBottomRef = useRef<HTMLDivElement | null>(null);
+  // Dashboard multi-select edit mode
+  const [dashboardEditMode, setDashboardEditMode] = useState(false);
+  const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -854,6 +872,9 @@ export default function ChatPage() {
             status: 'generating' as const,
             conversationIds:
               tag.conversation_global_tags?.map((m) => m.conversation_id) ?? [],
+            lastOpenedAt: null,
+            thumbnailUrl: null,
+            codeHash: null,
           }));
           setWidgets(fallbackWidgets);
         }
@@ -904,7 +925,7 @@ export default function ChatPage() {
   }, [selectedWidgetId, fetchWidgetDetail]);
 
   // Handle widget selection
-  const handleWidgetSelect = (widgetId: string) => {
+  const handleWidgetSelect = async (widgetId: string) => {
     if (selectedWidgetId === widgetId) {
       // Deselect
       setSelectedWidgetId(null);
@@ -914,6 +935,189 @@ export default function ChatPage() {
       setSelectedWidgetId(widgetId);
       const widget = widgets.find((w) => w.id === widgetId);
       setHighlightedConversationIds(widget?.conversationIds ?? []);
+
+      // Update last_opened_at in the background
+      try {
+        await fetch(`/api/widgets/${widgetId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updateLastOpened: true }),
+        });
+        // Update local state to reflect the change
+        setWidgets((prev) =>
+          prev.map((w) =>
+            w.id === widgetId
+              ? { ...w, lastOpenedAt: new Date().toISOString() }
+              : w
+          )
+        );
+      } catch (err) {
+        console.error('Failed to update last opened:', err);
+      }
+    }
+  };
+
+  // Handle widget deletion
+  const [deletingWidgetId, setDeletingWidgetId] = useState<string | null>(null);
+
+  const handleDeleteWidget = async (e: React.MouseEvent, widgetId: string) => {
+    e.stopPropagation(); // Prevent triggering widget selection
+
+    if (
+      !confirm(
+        'Are you sure you want to delete this widget? This action cannot be undone.'
+      )
+    ) {
+      return;
+    }
+
+    setDeletingWidgetId(widgetId);
+
+    try {
+      const res = await fetch(`/api/widgets/${widgetId}?deleteWidget=true`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to delete widget');
+      }
+
+      // Remove widget from local state
+      setWidgets((prev) => prev.filter((w) => w.id !== widgetId));
+
+      // If this widget was selected, deselect it
+      if (selectedWidgetId === widgetId) {
+        setSelectedWidgetId(null);
+        setSelectedWidgetDetail(null);
+        setSelectedWidgetData([]);
+        setHighlightedConversationIds([]);
+      }
+    } catch (err) {
+      console.error('Failed to delete widget:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete widget');
+    } finally {
+      setDeletingWidgetId(null);
+    }
+  };
+
+  // Dashboard edit mode handlers
+  const toggleDashboardEditMode = useCallback(() => {
+    setDashboardEditMode((prev) => {
+      if (prev) {
+        // Exiting edit mode - clear selections
+        setSelectedWidgetIds(new Set());
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleWidgetSelection = useCallback((widgetId: string) => {
+    setSelectedWidgetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(widgetId)) {
+        next.delete(widgetId);
+      } else {
+        next.add(widgetId);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectAllWidgets = useCallback(() => {
+    setSelectedWidgetIds(
+      new Set(widgets.filter((w) => w.status !== 'generating').map((w) => w.id))
+    );
+  }, [widgets]);
+
+  const deselectAllWidgets = useCallback(() => {
+    setSelectedWidgetIds(new Set());
+  }, []);
+
+  // Bulk delete selected widgets
+  const handleBulkDelete = async () => {
+    if (selectedWidgetIds.size === 0) return;
+
+    const count = selectedWidgetIds.size;
+    if (
+      !confirm(
+        `Are you sure you want to delete ${count} widget${
+          count > 1 ? 's' : ''
+        }? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setIsBulkDeleting(true);
+
+    try {
+      const deletePromises = Array.from(selectedWidgetIds).map((widgetId) =>
+        fetch(`/api/widgets/${widgetId}?deleteWidget=true`, {
+          method: 'DELETE',
+        })
+      );
+
+      await Promise.all(deletePromises);
+
+      // Remove deleted widgets from local state
+      setWidgets((prev) => prev.filter((w) => !selectedWidgetIds.has(w.id)));
+
+      // Clear selection and exit edit mode
+      setSelectedWidgetIds(new Set());
+      setDashboardEditMode(false);
+    } catch (err) {
+      console.error('Failed to delete widgets:', err);
+      setError(
+        err instanceof Error ? err.message : 'Failed to delete some widgets'
+      );
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  // Merge selected widgets
+  const handleMergeWidgets = async () => {
+    if (selectedWidgetIds.size < 2) {
+      setError('Select at least 2 widgets to merge');
+      return;
+    }
+
+    const count = selectedWidgetIds.size;
+    if (
+      !confirm(
+        `Merge ${count} widgets into one? This will combine all data and regenerate a unified UI. The original widgets will be removed.`
+      )
+    ) {
+      return;
+    }
+
+    setIsMerging(true);
+
+    try {
+      const res = await fetch('/api/widgets/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          widgetIds: Array.from(selectedWidgetIds),
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to merge widgets');
+      }
+
+      // Refresh widgets list
+      await fetchWidgets();
+
+      // Clear selection and exit edit mode
+      setSelectedWidgetIds(new Set());
+      setDashboardEditMode(false);
+    } catch (err) {
+      console.error('Failed to merge widgets:', err);
+      setError(err instanceof Error ? err.message : 'Failed to merge widgets');
+    } finally {
+      setIsMerging(false);
     }
   };
 
@@ -949,6 +1153,9 @@ export default function ChatPage() {
     setSelectedWidgetData([]);
     setHighlightedConversationIds([]);
     setShowConversationTags(false);
+    // Exit edit mode and clear selections
+    setDashboardEditMode(false);
+    setSelectedWidgetIds(new Set());
   };
 
   // Drag-and-drop handlers
@@ -1265,6 +1472,22 @@ export default function ChatPage() {
                     draggable={!isRenaming}
                     onDragStart={(e) => handleDragStart(e, conversation.id)}
                     onDragEnd={handleDragEnd}
+                    onMouseEnter={() => {
+                      // Find widgets that contain this conversation and highlight them
+                      const widgetIdsWithConversation = widgets
+                        .filter((w) =>
+                          w.conversationIds.includes(conversation.id)
+                        )
+                        .map((w) => w.id);
+                      if (widgetIdsWithConversation.length > 0) {
+                        setHighlightedWidgetIds(
+                          new Set(widgetIdsWithConversation)
+                        );
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      setHighlightedWidgetIds(new Set());
+                    }}
                     onClick={() => {
                       if (!isRenaming) {
                         if (isDashboardOpen) {
@@ -1452,11 +1675,40 @@ export default function ChatPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Edit mode toggle - only show when viewing widgets (not conversation tags) */}
+                    {!showConversationTags && (
+                      <button
+                        type="button"
+                        onClick={toggleDashboardEditMode}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                          dashboardEditMode
+                            ? 'bg-amber-600 text-white hover:bg-amber-500'
+                            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100'
+                        }`}
+                      >
+                        {dashboardEditMode ? (
+                          <>
+                            <Check className="h-4 w-4" />
+                            Done
+                          </>
+                        ) : (
+                          <>
+                            <Pencil className="h-4 w-4" />
+                            Edit
+                          </>
+                        )}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() =>
-                        setShowConversationTags(!showConversationTags)
-                      }
+                      onClick={() => {
+                        setShowConversationTags(!showConversationTags);
+                        // Exit edit mode when switching views
+                        if (!showConversationTags) {
+                          setDashboardEditMode(false);
+                          setSelectedWidgetIds(new Set());
+                        }
+                      }}
                       className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
                         showConversationTags
                           ? 'bg-amber-600 text-white hover:bg-amber-500'
@@ -1592,6 +1844,26 @@ export default function ChatPage() {
                           Processing...
                         </span>
                       )}
+                      {/* Delete button in widget detail view */}
+                      {selectedWidgetId && !deletingWidgetId && (
+                        <button
+                          type="button"
+                          onClick={(e) =>
+                            handleDeleteWidget(e, selectedWidgetId)
+                          }
+                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-all hover:bg-red-600/20 hover:text-red-400"
+                          title="Delete widget"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="hidden sm:inline">Delete</span>
+                        </button>
+                      )}
+                      {deletingWidgetId === selectedWidgetId && (
+                        <span className="flex items-center gap-2 text-sm text-red-400">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Deleting...
+                        </span>
+                      )}
                     </div>
 
                     {/* Widget Content - Fullscreen or vertical layout when editing */}
@@ -1679,6 +1951,11 @@ export default function ChatPage() {
                             dataItems={selectedWidgetData}
                             onDataChange={handleWidgetDataChange}
                             onAskToFix={handleAskToFix}
+                            existingCodeHash={selectedWidgetDetail.codeHash}
+                            onThumbnailCaptured={() => {
+                              // Refresh widgets list to show new thumbnail
+                              void fetchWidgets();
+                            }}
                             className="h-full w-full"
                           />
                         ) : (
@@ -2024,73 +2301,167 @@ export default function ChatPage() {
                           const isDropTarget = dropTargetWidgetId === widget.id;
                           const isProcessing =
                             processingDropWidgetId === widget.id;
+                          const isDeleting = deletingWidgetId === widget.id;
+                          const isSelected = selectedWidgetIds.has(widget.id);
+                          const canSelect = widget.status !== 'generating';
+                          const isHighlightedWidget = highlightedWidgetIds.has(
+                            widget.id
+                          );
                           return (
-                            <button
-                              key={widget.id}
-                              type="button"
-                              onClick={() => handleWidgetSelect(widget.id)}
-                              onDragEnter={(e) =>
-                                handleWidgetDragEnter(e, widget.id)
-                              }
-                              onDragLeave={handleWidgetDragLeave}
-                              onDragOver={handleDragOver}
-                              onDrop={(e) => handleDropOnWidget(e, widget.id)}
-                              className={`group flex flex-col gap-4 rounded-xl border p-6 text-left transition-all duration-200 hover:shadow-xl hover:shadow-zinc-900/50 hover:-translate-y-0.5 ${
-                                isDropTarget
-                                  ? 'border-amber-500 bg-amber-900/30 ring-2 ring-amber-500/50 scale-[1.02]'
-                                  : isProcessing
-                                  ? 'border-amber-500/50 bg-amber-900/20 animate-pulse'
-                                  : widget.status === 'generating'
-                                  ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
-                                  : widget.status === 'error'
-                                  ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
-                                  : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div
-                                  className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                            <div key={widget.id} className="relative group">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (dashboardEditMode && canSelect) {
+                                    toggleWidgetSelection(widget.id);
+                                  } else if (!dashboardEditMode) {
+                                    handleWidgetSelect(widget.id);
+                                  }
+                                }}
+                                onDragEnter={(e) =>
+                                  !dashboardEditMode &&
+                                  handleWidgetDragEnter(e, widget.id)
+                                }
+                                onDragLeave={
+                                  dashboardEditMode
+                                    ? undefined
+                                    : handleWidgetDragLeave
+                                }
+                                onDragOver={
+                                  dashboardEditMode ? undefined : handleDragOver
+                                }
+                                onDrop={(e) =>
+                                  !dashboardEditMode &&
+                                  handleDropOnWidget(e, widget.id)
+                                }
+                                disabled={isDeleting}
+                                className={`w-full flex flex-col gap-4 rounded-xl border p-6 text-left transition-all duration-200 ${
+                                  dashboardEditMode
+                                    ? isSelected
+                                      ? 'border-amber-500 bg-amber-900/20 ring-2 ring-amber-500/50'
+                                      : canSelect
+                                      ? 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50'
+                                      : 'border-zinc-700/30 bg-zinc-800/20 opacity-50 cursor-not-allowed'
+                                    : isDeleting
+                                    ? 'opacity-50 cursor-not-allowed'
+                                    : isDropTarget
+                                    ? 'border-amber-500 bg-amber-900/30 ring-2 ring-amber-500/50 scale-[1.02]'
+                                    : isProcessing
+                                    ? 'border-amber-500/50 bg-amber-900/20 animate-pulse'
+                                    : isHighlightedWidget
+                                    ? 'border-amber-400 bg-amber-900/25 ring-2 ring-amber-400/40 shadow-lg shadow-amber-900/30 scale-[1.01]'
+                                    : widget.status === 'generating'
+                                    ? 'border-amber-500/30 bg-amber-900/10 hover:border-amber-500/50 hover:bg-amber-900/20'
+                                    : widget.status === 'error'
+                                    ? 'border-red-500/30 bg-red-900/10 hover:border-red-500/50 hover:bg-red-900/20'
+                                    : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/50 hover:shadow-xl hover:shadow-zinc-900/50 hover:-translate-y-0.5'
+                                }`}
+                              >
+                                {/* Thumbnail Preview */}
+                                {widget.thumbnailUrl &&
+                                  widget.status === 'active' &&
+                                  !dashboardEditMode && (
+                                    <div className="relative -mx-6 -mt-6 mb-4 h-32 overflow-hidden rounded-t-xl bg-zinc-900">
+                                      <img
+                                        src={widget.thumbnailUrl}
+                                        alt={`Preview of ${
+                                          widget.name || widget.globalTag
+                                        }`}
+                                        className="h-full w-full object-cover object-top opacity-80 transition-opacity group-hover:opacity-100"
+                                      />
+                                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-800/90 via-transparent to-transparent" />
+                                    </div>
+                                  )}
+                                <div className="flex items-start justify-between">
+                                  {/* Checkbox in edit mode, icon otherwise */}
+                                  {dashboardEditMode ? (
+                                    <div
+                                      className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all ${
+                                        isSelected
+                                          ? 'bg-amber-600 text-white'
+                                          : canSelect
+                                          ? 'bg-zinc-700/50 text-zinc-400'
+                                          : 'bg-zinc-700/30 text-zinc-600'
+                                      }`}
+                                    >
+                                      {isSelected ? (
+                                        <CheckSquare className="h-6 w-6" />
+                                      ) : (
+                                        <SquareDashed className="h-6 w-6" />
+                                      )}
+                                    </div>
+                                  ) : !widget.thumbnailUrl ||
+                                    widget.status !== 'active' ? (
+                                    <div
+                                      className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                                        widget.status === 'generating'
+                                          ? 'bg-amber-900/30 text-amber-500'
+                                          : widget.status === 'error'
+                                          ? 'bg-red-900/30 text-red-400'
+                                          : 'bg-zinc-700/50 text-amber-500'
+                                      }`}
+                                    >
+                                      {isDeleting ? (
+                                        <Loader2 className="h-6 w-6 animate-spin" />
+                                      ) : widget.status === 'generating' ? (
+                                        <Loader2 className="h-6 w-6 animate-spin" />
+                                      ) : widget.status === 'error' ? (
+                                        <AlertCircle className="h-6 w-6" />
+                                      ) : (
+                                        <LayoutDashboard className="h-6 w-6" />
+                                      )}
+                                    </div>
+                                  ) : null}
+                                  {!dashboardEditMode && (
+                                    <ChevronRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
+                                  )}
+                                </div>
+                                <div>
+                                  <h4 className="text-lg font-medium text-zinc-200 line-clamp-2">
+                                    {widget.name || widget.globalTag}
+                                  </h4>
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <p className="text-sm text-zinc-500">
+                                      {widget.conversationIds.length}{' '}
+                                      conversation
+                                      {widget.conversationIds.length !== 1
+                                        ? 's'
+                                        : ''}
+                                    </p>
+                                    {widget.status === 'generating' && (
+                                      <span className="text-sm text-amber-500">
+                                        Generating...
+                                      </span>
+                                    )}
+                                    {widget.status === 'error' && (
+                                      <span className="text-sm text-red-400">
+                                        Error
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                              {/* Delete button - appears on hover (only when not in edit mode) */}
+                              {!dashboardEditMode && (
+                                <button
+                                  type="button"
+                                  onClick={(e) =>
+                                    handleDeleteWidget(e, widget.id)
+                                  }
+                                  disabled={
+                                    isDeleting || widget.status === 'generating'
+                                  }
+                                  className={`absolute top-3 right-3 p-2 rounded-lg transition-all ${
                                     widget.status === 'generating'
-                                      ? 'bg-amber-900/30 text-amber-500'
-                                      : widget.status === 'error'
-                                      ? 'bg-red-900/30 text-red-400'
-                                      : 'bg-zinc-700/50 text-amber-500'
+                                      ? 'hidden'
+                                      : 'opacity-0 group-hover:opacity-100 bg-zinc-700/80 hover:bg-red-600 text-zinc-400 hover:text-white'
                                   }`}
+                                  title="Delete widget"
                                 >
-                                  {widget.status === 'generating' ? (
-                                    <Loader2 className="h-6 w-6 animate-spin" />
-                                  ) : widget.status === 'error' ? (
-                                    <AlertCircle className="h-6 w-6" />
-                                  ) : (
-                                    <LayoutDashboard className="h-6 w-6" />
-                                  )}
-                                </div>
-                                <ChevronRight className="h-5 w-5 text-zinc-600 transition-transform group-hover:translate-x-1 group-hover:text-zinc-400" />
-                              </div>
-                              <div>
-                                <h4 className="text-lg font-medium text-zinc-200 line-clamp-2">
-                                  {widget.name || widget.globalTag}
-                                </h4>
-                                <div className="mt-2 flex items-center gap-2">
-                                  <p className="text-sm text-zinc-500">
-                                    {widget.conversationIds.length} conversation
-                                    {widget.conversationIds.length !== 1
-                                      ? 's'
-                                      : ''}
-                                  </p>
-                                  {widget.status === 'generating' && (
-                                    <span className="text-sm text-amber-500">
-                                      Generating...
-                                    </span>
-                                  )}
-                                  {widget.status === 'error' && (
-                                    <span className="text-sm text-red-400">
-                                      Error
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
                           );
                         })}
                         {/* New Widget Drop Zone */}
@@ -2131,6 +2502,80 @@ export default function ChatPage() {
                             </div>
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Edit Mode Action Bar */}
+                    {dashboardEditMode && (
+                      <div className="sticky bottom-0 left-0 right-0 mt-4 flex items-center justify-between rounded-xl border border-zinc-700 bg-zinc-800/95 p-4 shadow-xl backdrop-blur-sm">
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-zinc-400">
+                            {selectedWidgetIds.size} selected
+                          </span>
+                          <div className="h-4 w-px bg-zinc-600" />
+                          <button
+                            type="button"
+                            onClick={selectAllWidgets}
+                            className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                          >
+                            Select all
+                          </button>
+                          {selectedWidgetIds.size > 0 && (
+                            <button
+                              type="button"
+                              onClick={deselectAllWidgets}
+                              className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                            >
+                              Deselect all
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={handleMergeWidgets}
+                            disabled={
+                              selectedWidgetIds.size < 2 ||
+                              isMerging ||
+                              isBulkDeleting
+                            }
+                            className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-amber-600"
+                          >
+                            {isMerging ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Merging...
+                              </>
+                            ) : (
+                              <>
+                                <Merge className="h-4 w-4" />
+                                Merge ({selectedWidgetIds.size})
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleBulkDelete}
+                            disabled={
+                              selectedWidgetIds.size === 0 ||
+                              isBulkDeleting ||
+                              isMerging
+                            }
+                            className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                          >
+                            {isBulkDeleting ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Deleting...
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="h-4 w-4" />
+                                Delete ({selectedWidgetIds.size})
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
