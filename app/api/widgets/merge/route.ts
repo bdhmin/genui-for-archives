@@ -213,7 +213,7 @@ export async function POST(req: Request) {
     }
 
     // Trigger UI regeneration via the Supabase Edge Function
-    // This is done asynchronously - the function will update the widget when ready
+    // We await this to ensure the function is at least invoked properly
     try {
       const supabaseUrl = process.env.SUPABASE_URL;
       const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -221,7 +221,14 @@ export async function POST(req: Request) {
       // Call the generate-widget-ui edge function
       const functionUrl = `${supabaseUrl}/functions/v1/generate-widget-ui`;
       
-      fetch(functionUrl, {
+      console.log('[Merge API] Triggering edge function:', functionUrl);
+      console.log('[Merge API] Payload:', {
+        widgetId: newWidget.id,
+        globalTagId: newGlobalTag.id,
+        isMerge: true,
+      });
+      
+      const edgeFunctionResponse = await fetch(functionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -232,9 +239,14 @@ export async function POST(req: Request) {
           globalTagId: newGlobalTag.id,
           isMerge: true,
         }),
-      }).catch((err) => {
-        console.error('[Merge API] Error triggering regeneration:', err);
       });
+      
+      const edgeResult = await edgeFunctionResponse.text();
+      console.log('[Merge API] Edge function response:', edgeFunctionResponse.status, edgeResult);
+      
+      if (!edgeFunctionResponse.ok) {
+        console.error('[Merge API] Edge function failed:', edgeResult);
+      }
     } catch (err) {
       console.error('[Merge API] Error triggering regeneration:', err);
       // Don't fail the request - the widget is created, just needs regeneration

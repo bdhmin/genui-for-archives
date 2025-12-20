@@ -450,12 +450,26 @@ serve(async (req) => {
   }
 
   try {
-    const { global_tag_id, widgetId: providedWidgetId, isMerge, globalTagId } = await req.json();
+    console.log("[generate-widget-ui] Received request");
+    
+    const body = await req.json();
+    console.log("[generate-widget-ui] Request body:", JSON.stringify(body));
+    
+    const { global_tag_id, widgetId: providedWidgetId, isMerge, globalTagId } = body;
 
     // Support both global_tag_id and globalTagId for flexibility
     const effectiveGlobalTagId = global_tag_id || globalTagId;
+    
+    console.log("[generate-widget-ui] Params:", { 
+      effectiveGlobalTagId, 
+      providedWidgetId, 
+      isMerge,
+      global_tag_id,
+      globalTagId 
+    });
 
     if (!effectiveGlobalTagId) {
+      console.error("[generate-widget-ui] Missing global_tag_id");
       return new Response(
         JSON.stringify({ success: false, error: "global_tag_id is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -474,14 +488,21 @@ serve(async (req) => {
     
     if (providedWidgetId && isMerge) {
       // Merge case: widget was pre-created by the merge API
-      const { data: mergeWidget } = await supabase
+      console.log("[generate-widget-ui] Merge case - looking for widget:", providedWidgetId);
+      const { data: mergeWidget, error: mergeError } = await supabase
         .from("ui_widgets")
         .select("id, status")
         .eq("id", providedWidgetId)
         .single();
+      
+      if (mergeError) {
+        console.error("[generate-widget-ui] Error fetching merge widget:", mergeError);
+      }
       existingWidget = mergeWidget;
+      console.log("[generate-widget-ui] Found merge widget:", existingWidget);
     } else {
       // Normal case: check if widget exists for this global tag
+      console.log("[generate-widget-ui] Normal case - checking for existing widget");
       const { data: tagWidget } = await supabase
         .from("ui_widgets")
         .select("id, status")
@@ -491,6 +512,7 @@ serve(async (req) => {
     }
 
     if (existingWidget && existingWidget.status === "active" && !isMerge) {
+      console.log("[generate-widget-ui] Widget already active, skipping");
       return new Response(
         JSON.stringify({ success: true, message: "Widget already exists", widgetId: existingWidget.id }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -498,6 +520,7 @@ serve(async (req) => {
     }
 
     // Fetch the global tag
+    console.log("[generate-widget-ui] Fetching global tag:", effectiveGlobalTagId);
     const { data: globalTag, error: tagError } = await supabase
       .from("global_tags")
       .select("id, tag")
@@ -505,8 +528,10 @@ serve(async (req) => {
       .single();
 
     if (tagError || !globalTag) {
+      console.error("[generate-widget-ui] Global tag not found:", tagError);
       throw new Error(`Global tag not found: ${tagError?.message || "unknown"}`);
     }
+    console.log("[generate-widget-ui] Found global tag:", globalTag.tag);
 
     // Fetch linked conversation tags
     const { data: conversationLinks } = await supabase
