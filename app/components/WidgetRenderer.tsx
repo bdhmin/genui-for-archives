@@ -45,12 +45,34 @@ function generateCodeHash(code: string): string {
   return hash.toString(36);
 }
 
-// Strip export statements from the component code to avoid conflicts
+// Strip export statements, React imports, and normalize function name to "Widget"
 function stripExports(code: string): string {
-  return code
-    .replace(/export\s+default\s+\w+\s*;?\s*$/gm, '') // Remove "export default Widget;"
-    .replace(/export\s+default\s+function/g, 'function') // Convert "export default function" to just "function"
+  let cleaned = code
+    // Remove React hook imports (they're already provided by wrapper)
+    .replace(/import\s*\{[^}]*\}\s*from\s*['"]react['"];?\s*/g, '')
+    // Remove default React import
+    .replace(/import\s+React\s+from\s*['"]react['"];?\s*/g, '')
+    // Remove combined React imports like: import React, { useState } from 'react'
+    .replace(/import\s+React\s*,\s*\{[^}]*\}\s*from\s*['"]react['"];?\s*/g, '')
+    // Remove "export default Widget;"
+    .replace(/export\s+default\s+\w+\s*;?\s*$/gm, '')
+    // Convert "export default function" to just "function"
+    .replace(/export\s+default\s+function/g, 'function')
     .trim();
+  
+  // Normalize function name to "Widget" if it's something else
+  // Match: function SomeName({ or function SomeName ({
+  const funcMatch = cleaned.match(/function\s+(\w+)\s*\(\s*\{\s*data/);
+  if (funcMatch && funcMatch[1] !== 'Widget') {
+    const originalName = funcMatch[1];
+    // Replace the function declaration
+    cleaned = cleaned.replace(
+      new RegExp(`function\\s+${originalName}\\s*\\(`),
+      'function Widget('
+    );
+  }
+  
+  return cleaned;
 }
 
 // Wrapper code that sets up the widget with data and change handling
@@ -93,7 +115,9 @@ function App() {
 
   return (
     <div style={{ fontFamily: "'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif" }} className="min-h-screen bg-zinc-900 p-6 pb-[160px] antialiased text-zinc-100">
-      <Widget data={data} onDataChange={handleDataChange} />
+      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+        <Widget data={data} onDataChange={handleDataChange} />
+      </div>
     </div>
   );
 }
@@ -601,6 +625,7 @@ root.render(
             react: '^18.0.0',
             'react-dom': '^18.0.0',
             'lucide-react': '^0.454.0',
+            'recharts': '^2.12.0',
           },
         }}
         options={{

@@ -201,6 +201,11 @@ export async function POST(req: Request) {
       }
     }
 
+    // Collect old global tag IDs before deleting widgets
+    const oldGlobalTagIds = typedWidgets
+      .map((w) => w.global_tag_id)
+      .filter((id): id is string => !!id && id !== newGlobalTag.id);
+
     // Delete the old widgets (this will cascade delete their data)
     const { error: deleteError } = await supabase
       .from('ui_widgets')
@@ -210,6 +215,26 @@ export async function POST(req: Request) {
     if (deleteError) {
       console.error('[Merge API] Error deleting old widgets:', deleteError);
       // Continue anyway - the merge was successful
+    }
+
+    // Delete old global tags (and their conversation links)
+    if (oldGlobalTagIds.length > 0) {
+      // Delete conversation_global_tags links first
+      await supabase
+        .from('conversation_global_tags')
+        .delete()
+        .in('global_tag_id', oldGlobalTagIds);
+
+      // Delete the old global tags
+      const { error: tagDeleteError } = await supabase
+        .from('global_tags')
+        .delete()
+        .in('id', oldGlobalTagIds);
+
+      if (tagDeleteError) {
+        console.error('[Merge API] Error deleting old global tags:', tagDeleteError);
+        // Continue anyway
+      }
     }
 
     // Trigger UI regeneration via the Supabase Edge Function

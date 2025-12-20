@@ -29,19 +29,30 @@ interface ConversationTag {
   conversation_id: string;
 }
 
-interface WidgetSpec {
-  name: string;
-  description: string;
-  dataSchema: Record<string, unknown>;
-  componentCode: string;
-  initialData: unknown[];
-}
-
 // Stage 1: UI Type Selection response
 interface UITypeSelection {
   selectedType: string;
   reasoning: string;
   editableTimeline: boolean;
+}
+
+// Stage 2: Schema Design response
+interface SchemaDesignResult {
+  dataSchema: Record<string, unknown>;
+  schemaReasoning: string;
+  fieldDescriptions: Record<string, string>;
+}
+
+// Stage 3: Data Extraction response
+interface DataExtractionResult {
+  extractedData: Record<string, unknown>[];
+}
+
+// Stage 4: Code Generation response
+interface CodeGenerationResult {
+  name: string;
+  description: string;
+  componentCode: string;
 }
 
 // UI Type definitions with rich descriptions
@@ -55,8 +66,8 @@ You are a UI type selector. Analyze the conversation data and choose the BEST vi
    - BEST FOR: Grammar checks, code reviews, document version comparisons, proofreading feedback, tracking text changes over time, comparing drafts.
 
 2. **HISTORY** (History/Log View)
-   - APPEARANCE: Vertical list grouped by date sections (e.g., "Monday, December 16"). Each entry is a row with timestamp, description, and optional metadata. Entries within the same day are visually grouped. Expandable entries for details. A summary bar at top/bottom showing totals or averages.
-   - BEST FOR: Tracking things over time - meals, workouts, expenses, mood logs, journal entries, daily habits, activity logs. Any data where chronological order and date grouping is meaningful.
+   - APPEARANCE: Vertical list grouped by date sections (e.g., "Monday, December 16"). Each entry is a row with timestamp, description, and optional metadata. Entries within the same day are visually grouped. Expandable entries for details.
+   - BEST FOR: TEXT-HEAVY chronological logs - journal entries, meeting notes, activity descriptions, mood logs with text descriptions. NOT for numerical data like traffic counts, calories, or expenses (use CHART for those).
 
 3. **WEEK** (Week Calendar View)
    - APPEARANCE: 7-column grid layout with day headers (Mon, Tue, Wed...). Current day is highlighted. Items are placed in their respective day cells as small cards or chips. Scrollable if many items per day. Week navigation arrows to go forward/backward. Optional: color-coding by category.
@@ -90,25 +101,150 @@ You are a UI type selector. Analyze the conversation data and choose the BEST vi
     - APPEARANCE: Clean vertical list without complex structure. Each item is a row with minimal styling. Optional icons or bullets. Inline editing. Add new item at bottom. No grouping or complex hierarchy.
     - BEST FOR: Quick notes, simple enumerations, bookmarks, links, any straightforward list that doesn't need dates, checkboxes, or complex organization.
 
+11. **CHART** (Chart/Visualization View)
+    - APPEARANCE: Interactive charts with zinc-900 background. Bar charts for comparisons, line/area charts for trends over time, horizontal bars for rankings. Tooltips on hover showing values. Legend if multiple data series. Optional summary stats cards above/below the chart. Data table toggle for detail view.
+    - BEST FOR: Data with numerical values that benefit from visual comparison - hourly traffic patterns, expense breakdowns by category, calorie tracking over time, frequency distributions, progress over days/weeks, workout stats, any data where patterns, trends, or comparisons are more meaningful as visualizations than lists.
+
 === DECISION CRITERIA ===
 
-Analyze the data and consider:
-1. Is the data temporal (dates matter)? -> HISTORY, WEEK, or TIMELINE
-2. Is there a before/after relationship? -> TEXT_DIFF
-3. Are items being compared against each other? -> COMPARISON
-4. Does spatial organization help understanding? -> CANVAS
-5. Are there items to complete? -> CHECKLIST
+Analyze the data and consider IN THIS ORDER (first matching criterion wins):
+
+1. **CHART FIRST**: Does the data have NUMERICAL VALUES (counts, amounts, durations, frequencies, calories, costs, times, scores) that would benefit from VISUAL PATTERNS? -> CHART
+   - Traffic patterns by hour/day -> CHART (bar chart)
+   - Expense amounts over time -> CHART (line/area chart)
+   - Calorie counts per meal -> CHART (bar chart)
+   - Workout stats with numbers -> CHART
+   - Any data where seeing the SHAPE of numbers matters -> CHART
+
+2. Is there a before/after text relationship? -> TEXT_DIFF
+3. Are items being compared side-by-side? -> COMPARISON
+4. Does spatial organization help? -> CANVAS
+5. Are there items to complete/check off? -> CHECKLIST
 6. Is this a collection to browse? -> CARDS
-7. Are there numerical metrics to summarize? -> DASHBOARD
-8. Is it just a simple list of things? -> SIMPLE_LIST
+7. Are there aggregate KPIs/metrics? -> DASHBOARD
+8. Is it temporal but primarily TEXT-BASED (journal entries, notes, logs without numbers)? -> HISTORY
+9. Is it weekly planning/scheduling? -> WEEK
+10. Does it span time periods (start/end dates)? -> TIMELINE
+11. Is it just a simple list? -> SIMPLE_LIST
+
+IMPORTANT: Prefer CHART over HISTORY when data has numerical values. HISTORY is for text-heavy logs (journal entries, meeting notes). CHART is for number-heavy data (traffic counts, calories, expenses, times).
 
 === OUTPUT FORMAT ===
 
 Respond with JSON:
 {
-  "selectedType": "ONE_OF: TEXT_DIFF, HISTORY, WEEK, COMPARISON, CANVAS, TIMELINE, CHECKLIST, CARDS, DASHBOARD, SIMPLE_LIST",
+  "selectedType": "ONE_OF: TEXT_DIFF, HISTORY, WEEK, COMPARISON, CANVAS, TIMELINE, CHECKLIST, CARDS, DASHBOARD, SIMPLE_LIST, CHART",
   "reasoning": "2-3 sentences explaining why this type fits the data best and what visual structure will be most useful for the user.",
   "editableTimeline": true/false  // ONLY relevant for TIMELINE type: true if user would want to edit/plan (e.g., project planning), false if viewing historical/fixed data (e.g., historical events, transit schedules)
+}
+`;
+
+// Stage 2: Schema Design prompt
+const SCHEMA_DESIGN_PROMPT = `
+You are a data schema designer. Given a UI type and conversation content, design the optimal data schema.
+
+Your job is to:
+1. Analyze what data is actually present in the conversations
+2. Design a JSON Schema that captures all relevant fields
+3. Ensure the schema is appropriate for the selected UI type
+
+=== SCHEMA DESIGN PRINCIPLES ===
+
+1. **Always include an "id" field** - Every item needs a unique identifier
+
+2. **CRITICAL FOR CHART TYPE - MUST HAVE NUMERICAL DATA:**
+   If UI type is CHART, the schema MUST include:
+   - A numerical "value" field (type: number) - this is what gets visualized on the Y-axis
+   - A "label" or "hour" or "category" field - this is what appears on the X-axis
+   - Example for traffic: { id, hour: number (0-23), trafficCount: number, date: string }
+   - Example for calories: { id, mealName: string, calories: number, date: string }
+   - Example for expenses: { id, category: string, amount: number, date: string }
+   - DO NOT create text-only schemas for CHART - charts need NUMBERS to visualize!
+
+3. **Match the UI type requirements:**
+   - CHART: MUST have numerical fields (value, count, amount, etc.) - NO text-only schemas
+   - HISTORY: Include "date" field, "description", text-based details
+   - DASHBOARD: Include "value", "previousValue", "label", "unit" fields
+   - TIMELINE: Include "startDate", "endDate", "title" fields
+   - CHECKLIST: Include "task", "completed" (boolean), optional "priority"
+   - CARDS: Include "title", "description", optional "tags" array
+   - COMPARISON: Include "name" and "attributes" object
+   - WEEK: Include "date", "title", optional "category"
+   - CANVAS: Include "title", "content", "x", "y" positions
+   - TEXT_DIFF: Include "originalText", "revisedText", "title"
+   - SIMPLE_LIST: Include "text" field
+
+4. **Use appropriate field types:**
+   - Dates: { "type": "string", "format": "date" } or "date-time"
+   - Numbers: { "type": "number" } - REQUIRED for CHART type
+   - Booleans: { "type": "boolean" }
+   - Arrays: { "type": "array", "items": { ... } }
+   - Objects: { "type": "object", "properties": { ... } }
+
+5. **For CHART: Convert qualitative data to quantitative:**
+   - "Heavy traffic" -> trafficLevel: 3 (or trafficCount: number)
+   - "Peak at 5pm" -> hour: 17, isPeak: true
+   - "Busy morning" -> timePeriod: "morning", busyScore: number
+   - Charts CANNOT visualize text - they need NUMBERS
+
+=== OUTPUT FORMAT ===
+
+Respond with JSON:
+{
+  "dataSchema": {
+    "type": "object",
+    "properties": {
+      "id": { "type": "string" },
+      // ... other fields based on data and UI type
+    },
+    "required": ["id", ...]
+  },
+  "schemaReasoning": "2-3 sentences explaining why these fields were chosen and how they support the UI type.",
+  "fieldDescriptions": {
+    "fieldName": "What this field represents and where it comes from in the conversations"
+  }
+}
+`;
+
+// Stage 3: Data Extraction prompt
+const DATA_EXTRACTION_PROMPT = `
+You are a data extractor. Given a specific JSON schema and conversation content, extract ALL matching data items.
+
+Your job is to:
+1. Read through all conversations carefully
+2. Extract every piece of data that matches the schema
+3. Return an array of items, each conforming exactly to the schema
+
+=== EXTRACTION RULES ===
+
+1. **Be thorough** - Extract EVERY data point mentioned, don't skip any
+2. **Generate unique IDs** - Each item needs a unique "id" (use descriptive slugs like "lunch-dec-15" or UUIDs)
+3. **Use conversation dates** - When items mention dates, use them. When not specified, use the conversation date.
+4. **Infer missing values** - If a field is in the schema but not explicitly stated, make reasonable inferences or use null
+5. **Normalize data** - Convert text descriptions to appropriate field values (e.g., "high priority" -> "high")
+6. **Don't fabricate** - Only extract data that's actually mentioned in conversations
+
+=== EXAMPLE ===
+
+If the schema has { id, date, description, calories } and a conversation says:
+"I had a salad for lunch today, about 350 calories"
+
+Extract:
+{
+  "id": "salad-lunch-dec-19",
+  "date": "2024-12-19",
+  "description": "Salad for lunch",
+  "calories": 350
+}
+
+=== OUTPUT FORMAT ===
+
+Respond with JSON:
+{
+  "extractedData": [
+    { ... item matching schema ... },
+    { ... item matching schema ... }
+  ]
 }
 `;
 
@@ -438,6 +574,110 @@ ${editableTimeline ? `
 - Keep it simple - no complex grouping or hierarchy
 - Focus on quick add/edit/delete workflow
 `,
+
+    CHART: `
+=== CHART SPECIFIC PATTERNS ===
+
+**DATA SCHEMA:**
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "label": { "type": "string" },
+    "value": { "type": "number" },
+    "category": { "type": "string" },
+    "date": { "type": "string" }
+  }
+}
+
+**RECHARTS IMPORTS:**
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, PieChart, Pie } from 'recharts';
+
+**COMPONENT STRUCTURE:**
+- Wrap ALL charts in ResponsiveContainer: <ResponsiveContainer width="100%" height={300}>
+- Use zinc theme colors for chart elements:
+  - Grid lines: stroke="#3f3f46" (zinc-700)
+  - Axis text: fill="#a1a1aa" fontSize={12} (zinc-400)
+  - Axis lines: stroke="#52525b" (zinc-600)
+  - Primary data: fill="#f59e0b" or stroke="#f59e0b" (amber-500)
+  - Secondary data: fill="#52525b" or stroke="#71717a" (zinc-600/zinc-500)
+  - Tooltip: contentStyle={{ backgroundColor: '#27272a', border: '1px solid #3f3f46', borderRadius: '12px', padding: '8px 12px' }}
+  - Tooltip text: labelStyle={{ color: '#a1a1aa' }} itemStyle={{ color: '#fafafa' }}
+- Summary stats above chart: grid of stat cards with key numbers
+- Optional data table below chart for detail view toggle
+
+**CHART TYPE SELECTION - Choose based on data:**
+- Bar chart (BarChart): comparing discrete categories (traffic by hour, expenses by category, counts per group)
+- Line chart (LineChart): trends over time with continuous data (daily progress, temperature over time)
+- Area chart (AreaChart): cumulative or volume data (total spending over time, accumulated values)
+- Horizontal bar (BarChart layout="vertical"): rankings or comparisons (top items, leaderboards)
+- Pie/Donut chart (PieChart): proportions of a whole (budget breakdown, time allocation)
+
+**STYLING:**
+- Chart container: rounded-2xl bg-zinc-800/30 p-6
+- Chart title: text-sm font-medium text-zinc-400 mb-4
+- Stat cards above: grid grid-cols-2 md:grid-cols-3 gap-4 mb-6
+- Each stat card: rounded-xl bg-zinc-800/30 p-4
+- Stat value: text-2xl font-bold text-zinc-100
+- Stat label: text-xs text-zinc-500 mt-1
+- Bar radius for rounded tops: radius={[4, 4, 0, 0]}
+
+**IMPLEMENTATION HINTS:**
+- Group/aggregate data using useMemo for performance
+- For hourly data: create array of 24 hours, aggregate values per hour
+- For daily data: group by date string, sum values
+- For category data: group by category, count or sum
+- Include add/edit/delete UI for individual data points (list below chart)
+- Show totals, averages, or other relevant stats as summary cards
+- Use tickFormatter on axes to format dates/numbers nicely
+
+**EXAMPLE STRUCTURE:**
+\`\`\`jsx
+const chartData = useMemo(() => {
+  // Transform data for chart
+  return processedData;
+}, [data]);
+
+return (
+  <div className="flex flex-col gap-6">
+    {/* Summary Stats */}
+    <div className="grid grid-cols-3 gap-4">
+      <div className="rounded-xl bg-zinc-800/30 p-4">
+        <div className="text-2xl font-bold text-zinc-100">{total}</div>
+        <div className="text-xs text-zinc-500 mt-1">Total</div>
+      </div>
+    </div>
+    
+    {/* Chart */}
+    <div className="rounded-2xl bg-zinc-800/30 p-6">
+      <h3 className="text-sm font-medium text-zinc-400 mb-4">Chart Title</h3>
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
+          <XAxis dataKey="label" stroke="#52525b" tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+          <YAxis stroke="#52525b" tick={{ fill: '#a1a1aa', fontSize: 12 }} />
+          <Tooltip
+            contentStyle={{ backgroundColor: '#27272a', border: '1px solid #3f3f46', borderRadius: '12px' }}
+            labelStyle={{ color: '#a1a1aa' }}
+            itemStyle={{ color: '#fafafa' }}
+          />
+          <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+    
+    {/* Data list for add/edit/delete */}
+    <div className="flex flex-col gap-2">
+      {data.map(item => (
+        <div key={item.id} className="flex items-center justify-between py-3 border-b border-zinc-800/50">
+          {/* Item content with edit/delete buttons */}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+\`\`\`
+`,
   };
 
   return baseInstructions[uiType] || baseInstructions["SIMPLE_LIST"];
@@ -657,10 +897,9 @@ ${tagsList}
 CONVERSATIONS WITH DATES:
 ${conversationsText}
 
-Based on this data, which UI type would be MOST useful? Consider:
-- What is the nature of the data?
-- How would the user want to interact with it?
-- What visual structure would make it most useful?
+CRITICAL QUESTION: Does this data contain NUMERICAL VALUES (counts, amounts, times, calories, costs, frequencies, durations, scores)?
+- If YES -> strongly prefer CHART for visual patterns
+- If NO (mostly text/descriptions) -> consider HISTORY or other types
 
 Select the optimal UI type and explain your reasoning.`,
           },
@@ -690,15 +929,131 @@ Select the optimal UI type and explain your reasoning.`,
     }
 
     // ============================================
-    // STAGE 2: Widget Generation
+    // STAGE 2: Schema Design
     // ============================================
-    console.log(`[Stage 2] Generating ${uiTypeSelection.selectedType} widget...`);
+    console.log(`[Stage 2] Designing schema for ${uiTypeSelection.selectedType}...`);
+
+    const schemaResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: SCHEMA_DESIGN_PROMPT,
+          },
+          {
+            role: "user",
+            content: `Design a data schema for a **${uiTypeSelection.selectedType}** widget.
+
+GLOBAL TAG: ${globalTag.tag}
+
+UI TYPE: ${uiTypeSelection.selectedType}
+UI TYPE REASONING: ${uiTypeSelection.reasoning}
+${uiTypeSelection.selectedType === "CHART" ? `
+CRITICAL FOR CHART: The schema MUST include NUMERICAL fields that can be visualized:
+- A "value" or "count" or "amount" field with type: number
+- A "label" or "category" or "hour" field for the X-axis
+- Example: { id, hour: number, trafficCount: number, date: string }
+- DO NOT create a schema with only text fields - charts need NUMBERS!
+` : ""}
+CONVERSATION TAGS (what the user discussed):
+${tagsList}
+
+CONVERSATIONS WITH DATES:
+${conversationsText}
+
+Design the optimal schema for this UI type and data.`,
+          },
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!schemaResponse.ok) {
+      const errorText = await schemaResponse.text();
+      throw new Error(`Schema Design API error: ${errorText}`);
+    }
+
+    const schemaData = await schemaResponse.json();
+    const schemaContent = schemaData.choices[0]?.message?.content;
+
+    if (!schemaContent) {
+      throw new Error("No content in Schema Design response");
+    }
+
+    const schemaResult: SchemaDesignResult = JSON.parse(schemaContent);
+    console.log(`[Stage 2] Schema designed with fields:`, Object.keys(schemaResult.dataSchema.properties || {}));
+    console.log(`[Stage 2] Reasoning: ${schemaResult.schemaReasoning}`);
+
+    // ============================================
+    // STAGE 3: Data Extraction
+    // ============================================
+    console.log(`[Stage 3] Extracting data using schema...`);
+
+    const extractionResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: DATA_EXTRACTION_PROMPT,
+          },
+          {
+            role: "user",
+            content: `Extract all data matching this schema from the conversations.
+
+=== DATA SCHEMA ===
+${JSON.stringify(schemaResult.dataSchema, null, 2)}
+
+=== FIELD DESCRIPTIONS ===
+${JSON.stringify(schemaResult.fieldDescriptions, null, 2)}
+
+=== CONVERSATIONS WITH DATES ===
+${conversationsText}
+
+Extract EVERY piece of data that matches this schema. Be thorough - don't miss any data points.`,
+          },
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!extractionResponse.ok) {
+      const errorText = await extractionResponse.text();
+      throw new Error(`Data Extraction API error: ${errorText}`);
+    }
+
+    const extractionData = await extractionResponse.json();
+    const extractionContent = extractionData.choices[0]?.message?.content;
+
+    if (!extractionContent) {
+      throw new Error("No content in Data Extraction response");
+    }
+
+    const extractionResult: DataExtractionResult = JSON.parse(extractionContent);
+    console.log(`[Stage 3] Extracted ${extractionResult.extractedData.length} data items`);
+
+    // ============================================
+    // STAGE 4: Code Generation
+    // ============================================
+    console.log(`[Stage 4] Generating ${uiTypeSelection.selectedType} component code...`);
 
     // Build type-specific instructions based on selected UI type
     const typeSpecificInstructions = getTypeSpecificInstructions(uiTypeSelection.selectedType, uiTypeSelection.editableTimeline);
 
-    // Generate widget spec and code via OpenAI
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    const codeResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${openaiApiKey}`,
@@ -711,26 +1066,26 @@ Select the optimal UI type and explain your reasoning.`,
             role: "system",
             content: `You are a React component generator. You will generate a **${uiTypeSelection.selectedType}** widget.
 
-The UI type has already been selected. Your job is to:
-1. Generate the React component code for this specific UI type
-2. Extract relevant data from the conversations
-3. Follow the design system exactly
+The UI type and data schema have already been decided. Your ONLY job is to generate the React component code.
+
+=== EXACT DATA SCHEMA (use these exact field names) ===
+${JSON.stringify(schemaResult.dataSchema, null, 2)}
+
+=== SAMPLE DATA (this is what the component will receive) ===
+${JSON.stringify(extractionResult.extractedData.slice(0, 3), null, 2)}
 
 ${typeSpecificInstructions}
 
 Generate a JSON response with:
-1. "name": A concise widget name that reflects the UI type (e.g., "Recipe Collection", "Task Tracker", "Expense Dashboard")
+1. "name": A concise widget name (e.g., "Recipe Collection", "Task Tracker", "Expense Dashboard")
 2. "description": One sentence describing what this widget shows
-3. "dataSchema": A JSON Schema appropriate for your chosen UI type
-4. "componentCode": A complete React functional component as a string
-5. "initialData": An array of data items EXTRACTED FROM THE CONVERSATIONS
+3. "componentCode": A complete React functional component as a string
 
-CRITICAL - DATA EXTRACTION:
-- Extract ACTUAL data mentioned in the conversations (meals, calories, items, amounts, etc.)
-- Include dates when relevant (some UI types need them, some don't)
-- If a conversation mentions "I had soup and rice for lunch", extract that as a data item
-- Be thorough - extract every relevant data point mentioned
-- Each item MUST have an "id" and relevant fields for the data type
+CRITICAL REQUIREMENTS:
+- Use the EXACT field names from the schema above (data.fieldName)
+- The component receives { data, onDataChange } props where data is an array matching the schema
+- DO NOT generate any data - data extraction is already done
+- Focus ONLY on creating a polished UI component
 
 === DESIGN SYSTEM - FOLLOW THIS EXACTLY ===
 
@@ -864,91 +1219,62 @@ Icon buttons (small, subtle):
 - Example: <Trash2 className="w-4 h-4" /> inside a button
 - NEVER use emoji or text symbols for icons - ALWAYS use Lucide icons
 
+**CHARTS - USE RECHARTS (for CHART UI type):**
+- Recharts is available in the sandbox for data visualization
+- Import from 'recharts': BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, PieChart, Pie
+- ALWAYS wrap charts in ResponsiveContainer for responsive sizing: <ResponsiveContainer width="100%" height={300}>
+- Theme colors for charts:
+  - Primary data: fill="#f59e0b" (amber-500)
+  - Secondary data: fill="#52525b" (zinc-600)
+  - Grid lines: stroke="#3f3f46" (zinc-700)
+  - Axis lines: stroke="#52525b", tick fill="#a1a1aa"
+  - Tooltip: contentStyle={{ backgroundColor: '#27272a', border: '1px solid #3f3f46', borderRadius: '12px' }}
+- Use radius={[4, 4, 0, 0]} on Bar components for rounded top corners
+- Add CartesianGrid with strokeDasharray="3 3" and vertical={false} for clean look
+
 COMPONENT REQUIREMENTS:
 - Must be a single, self-contained React functional component
 - Generate the ${uiTypeSelection.selectedType} UI type as specified
-- Follow the type-specific patterns provided above
+- Use the EXACT field names from the schema provided above
 - Use React hooks (useState, useEffect, useMemo, useCallback, useRef) - they are already available, DO NOT import them
 - Use ONLY Tailwind CSS for styling - STRICTLY follow the design system above
-- Use ONLY lucide-react for icons - you MUST import these (e.g., import { Plus, Trash2 } from 'lucide-react')
+- Use lucide-react for icons - you MUST import these (e.g., import { Plus, Trash2 } from 'lucide-react')
+- For CHART UI type: Use recharts for visualizations - import from 'recharts'
 - Component receives props: { data, onDataChange }
-- data is an array matching your dataSchema
+- data is an array matching the schema above
 - onDataChange(newData) should be called when user edits data
 - Include add, edit, and delete functionality appropriate for the UI type
-- Show summaries/totals/stats where appropriate for the data
 - Handle empty state gracefully with centered content and muted styling
 
 COMPONENT CODE FORMAT:
 - Start with imports: import { IconName1, IconName2 } from 'lucide-react';
-- Then: function Widget({ data, onDataChange }) {
+- For CHART type, also import from 'recharts'
+- CRITICAL - FUNCTION NAME MUST BE "Widget": function Widget({ data, onDataChange }) {
 - End with: export default Widget;
-- Include inline comments for complex logic
-- CRITICAL - IMPORTS:
-  * DO import from 'lucide-react' (e.g., import { Plus, Trash2 } from 'lucide-react')
-  * DO NOT import React hooks (useState, useEffect, useMemo, useCallback, useRef) - these are already imported in the wrapper code
-  * DO NOT import React itself - React is available globally
-  * The wrapper code already provides: React, useState, useEffect, useMemo, useCallback, useRef
-- Organize data in a way that makes sense for your chosen UI type
+- The function MUST be named exactly "Widget" - not TrafficHistory, not DataView, not anything else - EXACTLY "Widget"
 
-EXAMPLE DATA SCHEMAS (choose what fits):
-
-For a checklist/todo:
-{
-  "type": "object",
-  "properties": {
-    "id": { "type": "string" },
-    "task": { "type": "string" },
-    "completed": { "type": "boolean" },
-    "priority": { "type": "string" }
-  }
-}
-
-For a recipe collection:
-{
-  "type": "object",
-  "properties": {
-    "id": { "type": "string" },
-    "name": { "type": "string" },
-    "ingredients": { "type": "array" },
-    "instructions": { "type": "string" },
-    "tags": { "type": "array" }
-  }
-}
-
-For tracking with dates (only when temporal makes sense):
-{
-  "type": "object",
-  "properties": {
-    "id": { "type": "string" },
-    "date": { "type": "string", "format": "date" },
-    "description": { "type": "string" },
-    "amount": { "type": "number" }
-  }
-}`,
+CRITICAL - IMPORTS:
+  * DO import from 'lucide-react'
+  * DO import from 'recharts' for CHART UI type
+  * DO NOT import React hooks - these are already available
+  * DO NOT import React itself - React is available globally`,
           },
           {
             role: "user",
-            content: `Generate a **${uiTypeSelection.selectedType}** widget for this theme.
+            content: `Generate ONLY the React component code for a **${uiTypeSelection.selectedType}** widget.
 
-GLOBAL TAG: ${globalTag.tag}
+WIDGET NAME THEME: ${globalTag.tag}
 
-SELECTED UI TYPE: ${uiTypeSelection.selectedType}
-REASONING: ${uiTypeSelection.reasoning}
-${uiTypeSelection.selectedType === "TIMELINE" ? `EDITABLE TIMELINE: ${uiTypeSelection.editableTimeline}` : ""}
+The data schema and extracted data have already been provided in the system prompt.
+Your ONLY job is to write the component code that renders this data beautifully.
 
-DETAILED CONVERSATION TAGS (what the user discussed):
-${tagsList}
+CRITICAL: The function MUST be named "Widget" exactly. Example:
+function Widget({ data, onDataChange }) {
+  // component code
+}
+export default Widget;
 
-CONVERSATIONS WITH DATES:
-${conversationsText}
-
-IMPORTANT:
-1. Generate a ${uiTypeSelection.selectedType} widget following the type-specific patterns
-2. Extract every piece of relevant data mentioned in these conversations
-3. Follow the design system exactly
-4. Create a polished, production-ready component
-
-Generate the complete widget specification as JSON.`,
+Generate the JSON response with: name, description, and componentCode.`,
           },
         ],
         temperature: 0.7,
@@ -956,28 +1282,29 @@ Generate the complete widget specification as JSON.`,
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
+    if (!codeResponse.ok) {
+      const errorText = await codeResponse.text();
+      throw new Error(`Code Generation API error: ${errorText}`);
     }
 
-    const openaiData = await openaiResponse.json();
-    const generatedContent = openaiData.choices[0]?.message?.content;
+    const codeData = await codeResponse.json();
+    const codeContent = codeData.choices[0]?.message?.content;
 
-    if (!generatedContent) {
-      throw new Error("No content in OpenAI response");
+    if (!codeContent) {
+      throw new Error("No content in Code Generation response");
     }
 
-    const widgetSpec: WidgetSpec = JSON.parse(generatedContent);
+    const codeResult: CodeGenerationResult = JSON.parse(codeContent);
+    console.log(`[Stage 4] Generated component: ${codeResult.name}`);
 
-    // Update widget with generated code
+    // Update widget with generated code and schema
     const { error: updateError } = await supabase
       .from("ui_widgets")
       .update({
-        name: widgetSpec.name,
-        description: widgetSpec.description,
-        component_code: widgetSpec.componentCode,
-        data_schema: widgetSpec.dataSchema,
+        name: codeResult.name,
+        description: codeResult.description,
+        component_code: codeResult.componentCode,
+        data_schema: schemaResult.dataSchema,
         status: "active",
       })
       .eq("id", widgetId);
@@ -995,9 +1322,9 @@ Generate the complete widget specification as JSON.`,
         .delete()
         .eq("widget_id", widgetId);
 
-      // Insert initial data
-      if (widgetSpec.initialData && widgetSpec.initialData.length > 0) {
-        const dataRows = widgetSpec.initialData.map((item, index) => ({
+      // Insert extracted data from Stage 3
+      if (extractionResult.extractedData && extractionResult.extractedData.length > 0) {
+        const dataRows = extractionResult.extractedData.map((item, index) => ({
           widget_id: widgetId,
           data: item,
           source_conversation_id: conversationIds[index % conversationIds.length] || null,
@@ -1010,13 +1337,15 @@ Generate the complete widget specification as JSON.`,
     }
     // For merges, the data was already migrated by the merge API, so we keep it
 
+    console.log(`[generate-widget-ui] Successfully generated widget with ${extractionResult.extractedData.length} data items`);
+
     return new Response(
       JSON.stringify({
         success: true,
         widgetId,
-        name: widgetSpec.name,
-        description: widgetSpec.description,
-        dataCount: widgetSpec.initialData?.length || 0,
+        name: codeResult.name,
+        description: codeResult.description,
+        dataCount: extractionResult.extractedData?.length || 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

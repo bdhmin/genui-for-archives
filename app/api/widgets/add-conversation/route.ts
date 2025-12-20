@@ -183,8 +183,12 @@ export async function POST(req: Request) {
         .limit(3);
 
       // Create a unique global tag name based on conversation title or first tag
-      const tagName = conversation.title || 
+      const baseTagName = conversation.title || 
         (convTags && convTags.length > 0 ? convTags[0].tag.substring(0, 50) : `Widget for ${conversationId.substring(0, 8)}`);
+
+      // Add timestamp suffix to ensure uniqueness (global_tags.tag has UNIQUE constraint)
+      const uniqueSuffix = Date.now().toString(36);
+      const tagName = `${baseTagName} (${uniqueSuffix})`;
 
       // Create a new global tag specifically for this widget
       const { data: newGlobalTag, error: globalTagError } = await supabase
@@ -196,7 +200,7 @@ export async function POST(req: Request) {
       if (globalTagError || !newGlobalTag) {
         console.error('[AddConversation] Failed to create global tag:', globalTagError);
         return NextResponse.json(
-          { error: 'Failed to create global tag for widget' },
+          { error: `Failed to create global tag for widget: ${globalTagError?.message || 'Unknown error'}` },
           { status: 500 }
         );
       }

@@ -206,24 +206,58 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Delete entire widget
     if (deleteWidget) {
-      // First delete all widget data (CASCADE should handle this, but being explicit)
+      // First, get the widget to find its global_tag_id
+      const { data: widget, error: fetchError } = await supabase
+        .from('ui_widgets')
+        .select('global_tag_id')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) {
+        console.error(`[Widget API] Error fetching widget ${id}:`, fetchError);
+        return NextResponse.json({ error: fetchError.message }, { status: 500 });
+      }
+
+      const globalTagId = widget?.global_tag_id;
+
+      // Delete all widget data (CASCADE should handle this, but being explicit)
       await supabase
         .from('ui_widget_data')
         .delete()
         .eq('widget_id', id);
 
       // Delete the widget itself
-      const { error } = await supabase
+      const { error: widgetDeleteError } = await supabase
         .from('ui_widgets')
         .delete()
         .eq('id', id);
 
-      if (error) {
-        console.error(`[Widget API] Error deleting widget ${id}:`, error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      if (widgetDeleteError) {
+        console.error(`[Widget API] Error deleting widget ${id}:`, widgetDeleteError);
+        return NextResponse.json({ error: widgetDeleteError.message }, { status: 500 });
       }
 
-      return NextResponse.json({ success: true, deleted: 'widget' });
+      // Delete the associated global tag (and its conversation links via CASCADE)
+      if (globalTagId) {
+        // First delete conversation_global_tags links
+        await supabase
+          .from('conversation_global_tags')
+          .delete()
+          .eq('global_tag_id', globalTagId);
+
+        // Then delete the global tag itself
+        const { error: tagDeleteError } = await supabase
+          .from('global_tags')
+          .delete()
+          .eq('id', globalTagId);
+
+        if (tagDeleteError) {
+          console.error(`[Widget API] Error deleting global tag ${globalTagId}:`, tagDeleteError);
+          // Don't fail the request - the widget is already deleted
+        }
+      }
+
+      return NextResponse.json({ success: true, deleted: 'widget', globalTagDeleted: !!globalTagId });
     }
 
     // Delete widget data item
