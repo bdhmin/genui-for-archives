@@ -106,21 +106,27 @@ YOUR TASK:
 3. A single conversation should be mapped to MULTIPLE global tags if it discusses multiple topics
 4. DEFAULT TO CREATING NEW TAGS for any topic not EXACTLY matching an existing tag
 
-WHEN TO REUSE AN EXISTING TAG (be very strict!):
-- The conversation tag is about PRECISELY the same specific topic
-- You would display the EXACT same UI with the same data fields
-- Use the EXACT text of the existing tag
-
-WHEN TO CREATE A NEW TAG (this is your DEFAULT!):
-- ANY new topic, subject, or category you see in the conversation tags
-- ANY topic that doesn't EXACTLY match an existing global tag
-- If a conversation discusses topic A and topic B, create TWO global tags (one for each)
-- Examples of topics that MUST ALWAYS be separate:
-  - "Calorie Tracking" vs "Meal Planning" vs "Restaurant Recommendations" vs "Grocery Lists" vs "Recipes"
+WHEN TO REUSE AN EXISTING TAG:
+- The conversation tag is about the same specific topic
+- You would display the same UI with the same data fields
+- Use similar text of the existing tag
+- Examples of topics that should be reused:
   - "Workspace Setup" vs "Office Furniture" vs "Ergonomics" vs "Home Office Budget"
   - "Daily Exercise Log" vs "Running Goals" vs "Gym Membership" vs "Workout Plans"
   - "Book Recommendations" vs "Reading Progress" vs "Library Visits" vs "Book Notes"
   - "Travel Plans" vs "Flight Bookings" vs "Hotel Research" vs "Trip Budgets"
+  - "Calorie Tracking" vs "Meal Planning" vs "Recipes"
+  - "Learning about a new JS Framework" vs "React vs Vue vs Svelte vs Angular"
+
+
+WHEN TO CREATE A NEW TAG:
+- ANY new topic, subject, or category you see in the conversation tags
+- ANY topic that doesn't really match an existing global tag in a meaningful way
+- If a conversation discusses topic A and topic B, create TWO global tags (one for each)
+- Examples of topics that MUST ALWAYS be separate:
+  - "Restaurant Recommendations" vs "Calorie Tracking"
+  - "Grocery Lists" vs "Calorie Tracking"
+  - "Grammar Correction" vs "Writing Help"
 - New tags should be short phrases (3-6 words)
 - Be SPECIFIC - use subtopics, not generic categories
 
