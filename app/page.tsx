@@ -28,6 +28,7 @@ import {
   GripVertical,
   Maximize2,
   LogOut,
+  Menu,
   CheckSquare,
   SquareDashed,
   Merge,
@@ -174,6 +175,7 @@ export default function ChatPage() {
   >(null);
   const [widgetEditInput, setWidgetEditInput] = useState('');
   const [isWidgetEditLoading, setIsWidgetEditLoading] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const widgetEditAbortRef = useRef<AbortController | null>(null);
   const widgetEditBottomRef = useRef<HTMLDivElement | null>(null);
   // Dashboard multi-select edit mode
@@ -1298,13 +1300,32 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-900 text-zinc-100">
-      <main className="flex min-h-0 grow bg-zinc-900">
+      <main className="relative flex min-h-0 grow bg-zinc-900">
+        {/* Mobile sidebar overlay */}
+        {isMobileSidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        )}
         <aside
-          className={`flex shrink-0 flex-col gap-4 overflow-hidden bg-zinc-950 px-5 py-6 text-zinc-50 transition-all duration-300 ease-out ${
-            isDashboardOpen ? 'w-72' : 'w-80 lg:w-72'
-          }`}
+          className={`fixed inset-y-0 left-0 z-50 flex shrink-0 flex-col gap-4 overflow-hidden bg-zinc-950 px-5 py-6 text-zinc-50 transition-all duration-300 ease-out md:relative md:translate-x-0 ${
+            isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } ${isDashboardOpen ? 'w-72' : 'w-72 sm:w-80 lg:w-72'}`}
         >
           <div className="flex flex-col gap-3">
+            {/* Mobile close button */}
+            <div className="flex items-center justify-between md:hidden">
+              <span className="text-sm font-semibold text-zinc-50">Menu</span>
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                aria-label="Close menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
             <div>
               <h2 className="text-sm font-semibold text-zinc-50">
                 GenUI from Conversations
@@ -1316,7 +1337,10 @@ export default function ChatPage() {
             {/* Dashboard Button */}
             <button
               type="button"
-              onClick={() => setIsDashboardOpen(true)}
+              onClick={() => {
+                setIsDashboardOpen(true);
+                setIsMobileSidebarOpen(false);
+              }}
               className={`relative flex h-auto min-h-[40px] w-full flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-sm font-semibold transition-all ${
                 isDashboardOpen
                   ? 'bg-amber-600 text-white hover:bg-amber-500'
@@ -1348,6 +1372,7 @@ export default function ChatPage() {
                   closeDashboard();
                 }
                 void handleCreateConversation();
+                setIsMobileSidebarOpen(false);
               }}
               disabled={isCreating}
               className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 text-sm font-semibold text-zinc-100 transition-all hover:bg-zinc-700 active:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1413,6 +1438,7 @@ export default function ChatPage() {
                           closeDashboard();
                         }
                         void loadConversation(conversation.id);
+                        setIsMobileSidebarOpen(false);
                       }
                     }}
                     onKeyDown={(event) => {
@@ -1425,6 +1451,7 @@ export default function ChatPage() {
                           closeDashboard();
                         }
                         void loadConversation(conversation.id);
+                        setIsMobileSidebarOpen(false);
                       }
                     }}
                     className={`group relative flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-all duration-200 ease-out ${
@@ -1565,29 +1592,71 @@ export default function ChatPage() {
           {isDashboardOpen ? (
             /* Dashboard View */
             <div className="flex h-full w-full flex-col bg-zinc-900 text-zinc-100 animate-in fade-in slide-in-from-left-4 duration-300">
+              {/* Mobile header for dashboard */}
+              <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-3 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSidebarOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <h1 className="flex-1 text-sm font-semibold text-zinc-100 truncate">
+                  {selectedWidgetId 
+                    ? (selectedWidgetDetail?.name || widgets.find(w => w.id === selectedWidgetId)?.name || 'Widget')
+                    : showConversationTags 
+                      ? 'Conversation Tags' 
+                      : 'Generated UIs'}
+                </h1>
+                {!selectedWidgetId && (
+                  <button
+                    type="button"
+                    onClick={closeDashboard}
+                    className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                    aria-label="Close dashboard"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                )}
+                {selectedWidgetId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedWidgetId(null);
+                      setHighlightedConversationIds([]);
+                    }}
+                    className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                    aria-label="Back to widgets"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
+
               {/* Drag instruction banner */}
               {draggingConversationId &&
                 !selectedWidgetId &&
                 !showConversationTags && (
                   <div className="shrink-0 flex items-center justify-center gap-3 bg-amber-900/30 border-b border-amber-500/30 px-4 py-3 text-amber-300">
                     <GripVertical className="h-4 w-4" />
-                    <span className="text-sm font-medium">
+                    <span className="text-sm font-medium text-center">
                       Drop on a widget to add data, or drop on &quot;Create New
                       Widget&quot; to generate a new UI
                     </span>
                   </div>
                 )}
 
-              {/* Dashboard Header - Only show when not in detail view */}
+              {/* Dashboard Header - Only show when not in detail view (desktop) */}
               {!selectedWidgetId && (
-                <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-8 py-5">
+                <div className="hidden md:flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-4 sm:px-8 sm:py-5">
                   <div>
-                    <h1 className="text-2xl font-bold text-zinc-50">
+                    <h1 className="text-xl sm:text-2xl font-bold text-zinc-50">
                       {showConversationTags
                         ? 'Conversation Tags'
                         : 'Generated UIs'}
                     </h1>
-                    <p className="text-sm text-zinc-400">
+                    <p className="text-xs sm:text-sm text-zinc-400">
                       {showConversationTags
                         ? 'Tags generated from each conversation (Round 1)'
                         : 'Auto-generated UIs from your conversations'}
@@ -1654,7 +1723,7 @@ export default function ChatPage() {
               <div className="flex flex-1 flex-col overflow-hidden">
                 {showConversationTags ? (
                   /* Conversation Tags View */
-                  <div className="flex-1 overflow-y-auto p-8">
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-8">
                     {isLoadingConversationTags ? (
                       <div className="flex h-64 items-center justify-center">
                         <div className="flex flex-col items-center gap-3">
@@ -1716,9 +1785,9 @@ export default function ChatPage() {
                 ) : selectedWidgetId ? (
                   /* Detail View - Full screen widget */
                   <div className="flex flex-1 flex-col overflow-hidden bg-zinc-900 animate-in fade-in duration-200">
-                    {/* Header bar with back button and title */}
+                    {/* Header bar with back button and title - desktop only */}
                     <div
-                      className={`flex shrink-0 items-center gap-4 border-b px-4 py-3 transition-colors ${
+                      className={`hidden md:flex shrink-0 items-center gap-4 border-b px-4 py-3 transition-colors ${
                         dropTargetWidgetId === selectedWidgetId
                           ? 'border-amber-500 bg-amber-900/20'
                           : 'border-zinc-800 bg-zinc-950'
@@ -1793,11 +1862,11 @@ export default function ChatPage() {
                           transition:
                             'top 700ms cubic-bezier(0.4, 0, 0.2, 1), left 700ms cubic-bezier(0.4, 0, 0.2, 1), right 700ms cubic-bezier(0.4, 0, 0.2, 1), bottom 700ms cubic-bezier(0.4, 0, 0.2, 1), border-radius 700ms cubic-bezier(0.4, 0, 0.2, 1), border-color 700ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 700ms cubic-bezier(0.4, 0, 0.2, 1)',
                           position: 'absolute',
-                          top: widgetEditMode ? '1rem' : '0',
-                          left: widgetEditMode ? '1.5rem' : '0',
-                          right: widgetEditMode ? '1.5rem' : '0',
-                          bottom: widgetEditMode ? '45%' : '0',
-                          borderRadius: widgetEditMode ? '1rem' : '0',
+                          top: widgetEditMode ? '0.5rem' : '0',
+                          left: widgetEditMode ? '0.5rem' : '0',
+                          right: widgetEditMode ? '0.5rem' : '0',
+                          bottom: widgetEditMode ? '50%' : '0',
+                          borderRadius: widgetEditMode ? '0.75rem' : '0',
                           border: widgetEditMode
                             ? '1px solid rgb(63 63 70)'
                             : '1px solid transparent',
@@ -1805,7 +1874,8 @@ export default function ChatPage() {
                             ? '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
                             : '0 0 0 0 rgba(0, 0, 0, 0)',
                         }}
-                        className="bg-zinc-900 overflow-hidden"
+                        className="bg-zinc-900 overflow-hidden sm:data-[edit=true]:top-4 sm:data-[edit=true]:left-6 sm:data-[edit=true]:right-6 sm:data-[edit=true]:bottom-[45%] sm:data-[edit=true]:rounded-2xl"
+                        data-edit={widgetEditMode}
                       >
                         {/* Fullscreen button when in edit mode */}
                         {widgetEditMode && (
@@ -1896,7 +1966,7 @@ export default function ChatPage() {
                         style={{
                           transition: 'all 700ms cubic-bezier(0.4, 0, 0.2, 1)',
                           position: 'absolute',
-                          top: widgetEditMode ? '56%' : '100%',
+                          top: widgetEditMode ? '51%' : '100%',
                           left: 0,
                           right: 0,
                           bottom: 0,
@@ -1905,10 +1975,10 @@ export default function ChatPage() {
                         }}
                         className="flex justify-center overflow-hidden"
                       >
-                        <section className="relative flex min-h-0 w-full max-w-3xl flex-col px-4 sm:px-6">
-                          <div className="flex grow flex-col gap-3 overflow-y-auto py-6 pb-24">
+                        <section className="relative flex min-h-0 w-full max-w-3xl flex-col px-3 sm:px-6">
+                          <div className="flex grow flex-col gap-3 overflow-y-auto py-4 pb-20 sm:py-6 sm:pb-24">
                             {widgetEditMessages.length === 0 ? (
-                              <div className="flex grow items-center justify-center text-sm text-zinc-300">
+                              <div className="flex grow items-center justify-center text-sm text-zinc-300 text-center px-4">
                                 Ask to make changes to the UI above.
                               </div>
                             ) : (
@@ -2084,10 +2154,10 @@ export default function ChatPage() {
 
                     {/* Fixed Input box at bottom - always in same position */}
                     {selectedWidgetDetail?.componentCode && (
-                      <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6 sm:px-6">
+                      <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-4 sm:px-6 sm:pb-6">
                         <div className="w-full max-w-3xl">
                           <form onSubmit={handleWidgetEditSubmit}>
-                            <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/95 py-2 pl-4 pr-2 shadow-xl shadow-black/40 backdrop-blur-sm transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                            <div className="flex items-center gap-2 sm:gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/95 py-2 pl-3 pr-2 sm:pl-4 shadow-xl shadow-black/40 backdrop-blur-sm transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
                               <textarea
                                 ref={(el) => {
                                   if (el) {
@@ -2133,7 +2203,7 @@ export default function ChatPage() {
                                 </button>
                               )}
                             </div>
-                            <p className="mt-2 text-center text-xs text-zinc-500">
+                            <p className="mt-2 text-center text-xs text-zinc-500 hidden sm:block">
                               {isWidgetEditLoading
                                 ? 'Press Escape or click stop to cancel'
                                 : 'Press Enter to send, Shift + Enter for new line'}
@@ -2145,24 +2215,24 @@ export default function ChatPage() {
                   </div>
                 ) : (
                   /* Overview - Widget Grid */
-                  <div
-                    className="flex-1 overflow-y-auto p-8"
-                    onDragOver={
-                      draggingConversationId && !dashboardEditMode
-                        ? handleDragOver
-                        : undefined
-                    }
-                    onDrop={(e) => {
-                      // Global drop handler - if not caught by a widget, create new widget
-                      if (
-                        draggingConversationId &&
-                        !dashboardEditMode &&
-                        !dropTargetWidgetId
-                      ) {
-                        handleDropOnNewWidget(e);
-                      }
-                    }}
-                  >
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+                    {/* Mobile action bar */}
+                    <div className="flex items-center justify-between mb-4 md:hidden">
+                      <p className="text-sm text-zinc-400">
+                        {widgets.length} widget{widgets.length !== 1 ? 's' : ''}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowConversationTags(!showConversationTags)}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                          showConversationTags
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                        }`}
+                      >
+                        {showConversationTags ? 'Show UIs' : 'View Tags'}
+                      </button>
+                    </div>
                     {isLoadingTags ? (
                       <div className="flex h-64 items-center justify-center">
                         <div className="flex flex-col items-center gap-3">
@@ -2563,14 +2633,41 @@ export default function ChatPage() {
             </div>
           ) : (
             /* Chat View */
-            <div className="flex min-h-0 grow justify-center px-4 sm:px-6">
-              <div className="flex h-full w-full max-w-3xl flex-col bg-zinc-900 text-zinc-100">
-                <section className="relative flex min-h-0 grow flex-col">
-                  <div
-                    ref={messagesContainerRef}
-                    onScroll={handleScroll}
-                    className="flex grow flex-col gap-3 overflow-y-auto p-6"
-                  >
+            <div className="flex min-h-0 grow flex-col">
+              {/* Mobile header */}
+              <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-3 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSidebarOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <h1 className="flex-1 text-sm font-semibold text-zinc-100 truncate">
+                  {conversationId 
+                    ? conversations.find(c => c.id === conversationId)?.title || 'Chat'
+                    : 'New Conversation'}
+                </h1>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDashboardOpen(true);
+                  }}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-zinc-800 hover:text-zinc-100"
+                  aria-label="Open dashboard"
+                >
+                  <LayoutDashboard className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="flex min-h-0 grow justify-center px-3 sm:px-6">
+                <div className="flex h-full w-full max-w-3xl flex-col bg-zinc-900 text-zinc-100">
+                  <section className="relative flex min-h-0 grow flex-col">
+                    <div
+                      ref={messagesContainerRef}
+                      onScroll={handleScroll}
+                      className="flex grow flex-col gap-3 overflow-y-auto p-4 sm:p-6"
+                    >
                     {isLoadingConversation ? (
                       <div className="flex grow items-center justify-center text-sm text-zinc-300">
                         Loading conversation...
@@ -2719,63 +2816,64 @@ export default function ChatPage() {
                   )}
                 </section>
 
-                <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-6 pb-6 pt-4">
-                  {error ? (
-                    <div className="mb-3 text-sm text-red-200">{error}</div>
-                  ) : null}
-                  <form onSubmit={handleSubmit}>
-                    <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-4 pr-2 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
-                      <textarea
-                        ref={(el) => {
-                          if (el) {
-                            el.style.height = 'auto';
-                            el.style.height = `${Math.min(
-                              el.scrollHeight,
+                <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 pb-4 pt-3 sm:px-6 sm:pb-6 sm:pt-4">
+                    {error ? (
+                      <div className="mb-3 text-sm text-red-200">{error}</div>
+                    ) : null}
+                    <form onSubmit={handleSubmit}>
+                      <div className="flex items-center gap-2 sm:gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-3 pr-2 sm:pl-4 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
+                        <textarea
+                          ref={(el) => {
+                            if (el) {
+                              el.style.height = 'auto';
+                              el.style.height = `${Math.min(
+                                el.scrollHeight,
+                                200
+                              )}px`;
+                            }
+                          }}
+                          value={input}
+                          onChange={(e) => {
+                            setInput(e.target.value);
+                            const target = e.target;
+                            target.style.height = 'auto';
+                            target.style.height = `${Math.min(
+                              target.scrollHeight,
                               200
                             )}px`;
-                          }
-                        }}
-                        value={input}
-                        onChange={(e) => {
-                          setInput(e.target.value);
-                          const target = e.target;
-                          target.style.height = 'auto';
-                          target.style.height = `${Math.min(
-                            target.scrollHeight,
-                            200
-                          )}px`;
-                        }}
-                        onKeyDown={handleKeyDown}
-                        rows={1}
-                        placeholder="Send a message..."
-                        className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-                      />
-                      {isLoading ? (
-                        <button
-                          type="button"
-                          onClick={stopGeneration}
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
-                          aria-label="Stop generating"
-                        >
-                          <Square className="h-3.5 w-3.5 fill-current" />
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          disabled={!input.trim()}
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-                          aria-label="Send message"
-                        >
-                          <Send className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                    <p className="mt-2 text-center text-xs text-zinc-500">
-                      {isLoading
-                        ? 'Press Escape or click stop to cancel'
-                        : 'Press Enter to send, Shift + Enter for new line'}
-                    </p>
-                  </form>
+                          }}
+                          onKeyDown={handleKeyDown}
+                          rows={1}
+                          placeholder="Send a message..."
+                          className="max-h-[200px] min-h-[32px] flex-1 resize-none bg-transparent py-1 text-base leading-6 text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                        />
+                        {isLoading ? (
+                          <button
+                            type="button"
+                            onClick={stopGeneration}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white transition-all hover:bg-red-500 hover:scale-105"
+                            aria-label="Stop generating"
+                          >
+                            <Square className="h-3.5 w-3.5 fill-current" />
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={!input.trim()}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-600 text-zinc-100 transition-all hover:bg-zinc-500 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                            aria-label="Send message"
+                          >
+                            <Send className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="mt-2 text-center text-xs text-zinc-500 hidden sm:block">
+                        {isLoading
+                          ? 'Press Escape or click stop to cancel'
+                          : 'Press Enter to send, Shift + Enter for new line'}
+                      </p>
+                    </form>
+                  </div>
                 </div>
               </div>
             </div>
