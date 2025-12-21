@@ -12,6 +12,9 @@ type WidgetRow = {
   status: string;
   created_at: string;
   updated_at: string;
+  last_opened_at: string | null;
+  thumbnail_url: string | null;
+  code_hash: string | null;
   global_tags: {
     tag: string;
     conversation_global_tags: { conversation_id: string }[];
@@ -26,7 +29,7 @@ export async function GET() {
 
     const supabase = getSupabaseServerClient();
 
-    // Fetch all widgets with their global tag info
+    // Fetch all widgets with their global tag info, sorted by last_opened_at
     const { data: widgets, error } = await supabase
       .from('ui_widgets')
       .select(`
@@ -37,6 +40,9 @@ export async function GET() {
         status,
         created_at,
         updated_at,
+        last_opened_at,
+        thumbnail_url,
+        code_hash,
         global_tags (
           tag,
           conversation_global_tags (
@@ -44,7 +50,7 @@ export async function GET() {
           )
         )
       `)
-      .order('created_at', { ascending: false });
+      .order('last_opened_at', { ascending: false, nullsFirst: false });
 
     if (error) {
       console.error('[Widgets API] Error fetching widgets:', error);
@@ -70,6 +76,9 @@ export async function GET() {
         ) || [],
         createdAt: widget.created_at,
         updatedAt: widget.updated_at,
+        lastOpenedAt: widget.last_opened_at,
+        thumbnailUrl: widget.thumbnail_url,
+        codeHash: widget.code_hash,
       };
     });
 
