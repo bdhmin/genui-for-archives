@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import {
   ChatMessage,
   Conversation,
@@ -17,8 +17,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY,
 });
 
 type ChatRequest = {
@@ -399,9 +399,9 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.CLAUDE_API_KEY) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is missing" },
+        { error: "CLAUDE_API_KEY is missing" },
         { status: 500 }
       );
     }
@@ -447,18 +447,18 @@ export async function POST(req: Request) {
 
     // Build messages with system prompt if we have linked widgets
     const systemPrompt = buildSystemPromptWithWidgetContext(linkedWidgets, userMessageTimestamp);
-    const messagesForAI: { role: "system" | "user" | "assistant"; content: string }[] = [
-      { role: "system", content: systemPrompt },
-      ...history.map(({ role, content }) => ({ 
-        role: role as "user" | "assistant", 
-        content 
-      })),
-    ];
+    
+    // Convert history to Anthropic message format
+    const anthropicMessages: Anthropic.MessageParam[] = history.map(({ role, content }) => ({ 
+      role: role as "user" | "assistant", 
+      content 
+    }));
 
-    const stream = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: messagesForAI,
-      stream: true,
+    const stream = await anthropic.messages.stream({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: anthropicMessages,
     });
 
     const encoder = new TextEncoder();
@@ -478,40 +478,42 @@ export async function POST(req: Request) {
 
         (async () => {
           try {
-            for await (const chunk of stream) {
-              const delta = chunk.choices[0]?.delta?.content ?? "";
-              if (!delta) continue;
-              fullContent += delta;
-              
-              // Check if we're entering a widget-data block
-              if (!widgetDataBlockStarted && fullContent.includes("```widget-data")) {
-                widgetDataBlockStarted = true;
-                // Stream only content before the widget-data block
-                const blockStart = fullContent.indexOf("```widget-data");
-                const contentToStream = fullContent.slice(streamedContent.length, blockStart);
-                if (contentToStream) {
-                  streamedContent += contentToStream;
-                  controller.enqueue(
-                    encoder.encode(
-                      `event:token\ndata:${JSON.stringify(contentToStream)}\n\n`
-                    )
-                  );
+            for await (const event of stream) {
+              if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                const delta = event.delta.text;
+                if (!delta) continue;
+                fullContent += delta;
+                
+                // Check if we're entering a widget-data block
+                if (!widgetDataBlockStarted && fullContent.includes("```widget-data")) {
+                  widgetDataBlockStarted = true;
+                  // Stream only content before the widget-data block
+                  const blockStart = fullContent.indexOf("```widget-data");
+                  const contentToStream = fullContent.slice(streamedContent.length, blockStart);
+                  if (contentToStream) {
+                    streamedContent += contentToStream;
+                    controller.enqueue(
+                      encoder.encode(
+                        `event:token\ndata:${JSON.stringify(contentToStream)}\n\n`
+                      )
+                    );
+                  }
+                  continue;
                 }
-                continue;
+                
+                // Skip streaming if we're inside the widget-data block
+                if (widgetDataBlockStarted) {
+                  continue;
+                }
+                
+                // Normal streaming
+                streamedContent += delta;
+                controller.enqueue(
+                  encoder.encode(
+                    `event:token\ndata:${JSON.stringify(delta)}\n\n`
+                  )
+                );
               }
-              
-              // Skip streaming if we're inside the widget-data block
-              if (widgetDataBlockStarted) {
-                continue;
-              }
-              
-              // Normal streaming
-              streamedContent += delta;
-              controller.enqueue(
-                encoder.encode(
-                  `event:token\ndata:${JSON.stringify(delta)}\n\n`
-                )
-              );
             }
 
             // Parse widget data updates from the response
@@ -609,4 +611,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

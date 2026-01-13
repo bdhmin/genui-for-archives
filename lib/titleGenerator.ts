@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 
 type TitleInput = {
   userMessage: string;
@@ -17,23 +17,18 @@ export async function generateConversationTitle({
 }: TitleInput): Promise<string> {
   const baseText = userMessage || assistantMessage || "New conversation";
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.CLAUDE_API_KEY) {
     return fallbackTitle(baseText);
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const anthropic = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 12,
-      temperature: 0.3,
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 32,
+      system: "Create a 2-3 word title for this conversation. Be brief and direct. No quotes, no punctuation. Respond with only the title, nothing else.",
       messages: [
-        {
-          role: "system",
-          content:
-            "Create a 2-3 word title for this conversation. Be brief and direct. No quotes, no punctuation.",
-        },
         {
           role: "user",
           content: `User: ${userMessage.slice(0, 400)}\nAssistant: ${assistantMessage.slice(0, 400)}`,
@@ -41,11 +36,11 @@ export async function generateConversationTitle({
       ],
     });
 
-    const title = response.choices[0]?.message?.content?.trim();
+    const textBlock = response.content.find(block => block.type === "text");
+    const title = textBlock?.type === "text" ? textBlock.text.trim() : null;
     return title && title.length > 0 ? title : fallbackTitle(baseText);
   } catch (error) {
     console.error("Title generation failed", error);
     return fallbackTitle(baseText);
   }
 }
-

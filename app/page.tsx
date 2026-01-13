@@ -190,6 +190,7 @@ export default function ChatPage() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isProgrammaticScrollRef = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const router = useRouter();
 
   // Logout handler
@@ -268,6 +269,15 @@ export default function ChatPage() {
       }, 100);
     }
   }, [isLoadingConversation, messages.length]);
+
+  // Autofocus textarea on initial load
+  useEffect(() => {
+    // Small delay to ensure the textarea is mounted
+    const timer = setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -406,6 +416,10 @@ export default function ChatPage() {
         summary,
         ...prev.filter((c) => c.id !== summary.id),
       ]);
+      // Focus the textarea after creating a new conversation
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to create conversation';
@@ -2824,6 +2838,7 @@ export default function ChatPage() {
                       <div className="flex items-center gap-2 sm:gap-3 rounded-2xl border border-zinc-700 bg-zinc-800/50 py-2 pl-3 pr-2 sm:pl-4 transition-colors focus-within:border-zinc-500 focus-within:bg-zinc-800">
                         <textarea
                           ref={(el) => {
+                            textareaRef.current = el;
                             if (el) {
                               el.style.height = 'auto';
                               el.style.height = `${Math.min(

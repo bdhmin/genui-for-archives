@@ -30,6 +30,7 @@ interface SchemaEvolutionResult {
   newSchema?: Record<string, unknown>;
   newComponentCode?: string;
   operations: DataOperation[];
+  extractedData?: Record<string, unknown>[];
 }
 
 interface WidgetData {
@@ -74,7 +75,7 @@ serve(async (req) => {
     // Initialize clients
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY")!;
+    const claudeApiKey = Deno.env.get("CLAUDE_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -162,18 +163,17 @@ serve(async (req) => {
       .map(d => d.data);
 
     // Step 1: Analyze if schema needs to evolve
-    const analysisResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    const analysisResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
+        "x-api-key": claudeApiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are a data schema analyst. Analyze if a new conversation requires expanding an existing widget's data schema.
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: `You are a data schema analyst. Analyze if a new conversation requires expanding an existing widget's data schema.
 
 You will receive:
 1. The widget's current data schema
@@ -203,7 +203,7 @@ You can specify three types of operations:
 2. "update" - Modify existing data items (match by date + type/category)
 3. "delete" - Remove existing data items that are incorrect or no longer valid
 
-Respond with JSON:
+Respond with ONLY valid JSON:
 {
   "schemaChanged": boolean,
   "reason": "explanation of schema decision",
@@ -220,7 +220,7 @@ Respond with JSON:
 }
 
 Be aggressive about correcting data - if the user says something that contradicts existing data, delete or update it!`,
-          },
+        messages: [
           {
             role: "user",
             content: `WIDGET: ${widget.name}
@@ -239,21 +239,22 @@ Analyze if schema evolution is needed and determine what data operations are nee
 - If the user mentions new data, ADD it
 - If the user corrects or updates something, UPDATE or DELETE the old entry
 - If the user says they made a mistake or didn't do something, DELETE the incorrect entry
-- USE THE DATE FROM EACH MESSAGE'S TIMESTAMP for date fields`,
+- USE THE DATE FROM EACH MESSAGE'S TIMESTAMP for date fields
+
+Respond with only valid JSON.`,
           },
         ],
-        temperature: 0.3,
-        response_format: { type: "json_object" },
       }),
     });
 
     if (!analysisResponse.ok) {
       const errorText = await analysisResponse.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
+      throw new Error(`Claude API error: ${errorText}`);
     }
 
     const analysisData = await analysisResponse.json();
-    const analysisContent = analysisData.choices[0]?.message?.content;
+    const textBlock = analysisData.content?.find((block: { type: string }) => block.type === "text");
+    const analysisContent = textBlock?.text;
 
     if (!analysisContent) {
       throw new Error("No content in analysis response");
@@ -288,18 +289,17 @@ Analyze if schema evolution is needed and determine what data operations are nee
         .join("\n");
 
       // Regenerate component code with evolved schema
-      const regenResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const regenResponse = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${openaiApiKey}`,
+          "x-api-key": claudeApiKey,
+          "anthropic-version": "2023-06-01",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: `You are a React component generator. Update a widget component to support an evolved data schema.
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 8192,
+          system: `You are a React component generator. Update a widget component to support an evolved data schema.
 
 The component must:
 - Work with BOTH old data (following old schema) AND new data (following new schema)
@@ -327,7 +327,7 @@ Component format:
 - Icon sizing: className="w-4 h-4" (small), "w-5 h-5" (medium)
 
 Respond with ONLY the component code, no markdown fences or explanation.`,
-            },
+          messages: [
             {
               role: "user",
               content: `WIDGET: ${widget.name}
@@ -347,7 +347,6 @@ ${tagsList}
 Update the component to support the evolved schema while maintaining backward compatibility with existing data.`,
             },
           ],
-          temperature: 0.4,
         }),
       });
 
@@ -357,7 +356,8 @@ Update the component to support the evolved schema while maintaining backward co
       }
 
       const regenData = await regenResponse.json();
-      const newComponentCode = regenData.choices[0]?.message?.content?.trim() || "";
+      const regenTextBlock = regenData.content?.find((block: { type: string }) => block.type === "text");
+      const newComponentCode = regenTextBlock?.text?.trim() || "";
 
       // Update widget with new schema and component code
       const { error: updateError } = await supabase
@@ -502,4 +502,3 @@ Update the component to support the evolved schema while maintaining backward co
     );
   }
 });
-

@@ -57,7 +57,7 @@ serve(async (req) => {
     // Initialize clients
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY")!;
+    const claudeApiKey = Deno.env.get("CLAUDE_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -138,19 +138,18 @@ serve(async (req) => {
       })
       .join("\n");
 
-    // Call OpenAI to extract data matching the widget's schema
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Call Claude to extract data matching the widget's schema
+    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
+        "x-api-key": claudeApiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are a data extraction assistant. Your task is to extract data from a conversation that matches a specific schema.
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: `You are a data extraction assistant. Your task is to extract data from a conversation that matches a specific schema.
 
 You will receive:
 1. A widget name (the type of data being tracked)
@@ -173,7 +172,7 @@ You can specify three types of operations:
 2. "update" - Modify existing data items (match by date + type/category)
 3. "delete" - Remove existing data items that are incorrect or no longer valid
 
-Respond with JSON:
+Respond with ONLY valid JSON:
 {
   "operations": [
     {
@@ -191,7 +190,7 @@ For "update" operations, provide the full new data that should replace the match
 For "add" operations, provide the complete new data item.
 
 Be aggressive about correcting data - if the user says something that contradicts existing data, delete or update it!`,
-          },
+        messages: [
           {
             role: "user",
             content: `Analyze this conversation for the "${widget.name}" widget and determine what data operations are needed.
@@ -211,24 +210,25 @@ Determine what operations are needed:
 - If the user says they didn't do something or made a mistake, DELETE the incorrect entry
 - USE THE DATE FROM EACH MESSAGE'S TIMESTAMP for the date field
 
-Be willing to DELETE incorrect data and UPDATE existing entries when the conversation indicates corrections or changes.`,
+Be willing to DELETE incorrect data and UPDATE existing entries when the conversation indicates corrections or changes.
+
+Respond with only valid JSON: {"operations": [...]}`,
           },
         ],
-        temperature: 0.3,
-        response_format: { type: "json_object" },
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
+    if (!claudeResponse.ok) {
+      const errorText = await claudeResponse.text();
+      throw new Error(`Claude API error: ${errorText}`);
     }
 
-    const openaiData = await openaiResponse.json();
-    const generatedContent = openaiData.choices[0]?.message?.content;
+    const claudeData = await claudeResponse.json();
+    const textBlock = claudeData.content?.find((block: { type: string }) => block.type === "text");
+    const generatedContent = textBlock?.text;
 
     if (!generatedContent) {
-      throw new Error("No content in OpenAI response");
+      throw new Error("No content in Claude response");
     }
 
     const parsed = JSON.parse(generatedContent);
@@ -391,4 +391,3 @@ Be willing to DELETE incorrect data and UPDATE existing entries when the convers
     );
   }
 });
-

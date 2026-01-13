@@ -35,7 +35,7 @@ serve(async (req) => {
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY")!;
+    const claudeApiKey = Deno.env.get("CLAUDE_API_KEY")!;
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -80,19 +80,18 @@ serve(async (req) => {
       .map(t => `- "${t.tag}" (ID: ${t.id})`)
       .join("\n");
 
-    // Call OpenAI to cluster and generalize tags
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Call Claude to cluster and generalize tags
+    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
+        "x-api-key": claudeApiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are a tag clustering expert. Your PRIMARY goal is to CREATE NEW GLOBAL TAGS for EACH DISTINCT TOPIC you see in the conversation tags.
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: `You are a tag clustering expert. Your PRIMARY goal is to CREATE NEW GLOBAL TAGS for EACH DISTINCT TOPIC you see in the conversation tags.
 
 CRITICAL: A single conversation can discuss MULTIPLE different topics! You must create a SEPARATE global tag for EACH distinct topic mentioned, even if they're in the same conversation.
 
@@ -150,8 +149,8 @@ CRITICAL REQUIREMENTS:
 3. A global tag with empty source_conversation_ids is INVALID - do not create it
 4. Each conversation ID should appear in at least one global tag
 
-Respond with valid JSON.`,
-          },
+Respond with ONLY valid JSON. No other text or explanation.`,
+        messages: [
           {
             role: "user",
             content: `EXISTING GLOBAL TAGS:
@@ -166,24 +165,23 @@ INSTRUCTIONS:
 3. Include the conversation's UUID in the source_conversation_ids for EVERY relevant global tag
 4. EVERY global tag in your response MUST have at least one conversation ID
 
-Return your response as JSON.`,
+Return your response as valid JSON only: {"global_tags": [...]}`,
           },
         ],
-        temperature: 0.4,
-        response_format: { type: "json_object" },
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
+    if (!claudeResponse.ok) {
+      const errorText = await claudeResponse.text();
+      throw new Error(`Claude API error: ${errorText}`);
     }
 
-    const openaiData = await openaiResponse.json();
-    const generatedContent = openaiData.choices[0]?.message?.content;
+    const claudeData = await claudeResponse.json();
+    const textBlock = claudeData.content?.find((block: { type: string }) => block.type === "text");
+    const generatedContent = textBlock?.text;
 
     if (!generatedContent) {
-      throw new Error("No content in OpenAI response");
+      throw new Error("No content in Claude response");
     }
 
     const parsedResponse: TagClusteringResponse = JSON.parse(generatedContent);
@@ -357,4 +355,3 @@ Return your response as JSON.`,
     );
   }
 });
-

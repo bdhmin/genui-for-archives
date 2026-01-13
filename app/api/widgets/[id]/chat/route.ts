@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 import {
   ChatMessage,
@@ -11,8 +11,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120; // 2 minutes for code generation
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY,
 });
 
 type ChatRequest = {
@@ -89,9 +89,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.CLAUDE_API_KEY) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is missing" },
+        { error: "CLAUDE_API_KEY is missing" },
         { status: 500 }
       );
     }
@@ -143,12 +143,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const updated = await store.getConversation(conversation.id);
     const history = updated?.messages ?? [userMessage];
 
-    // Build messages for OpenAI
-    const openaiMessages: OpenAI.ChatCompletionMessageParam[] = [
-      { role: "system", content: WIDGET_EDIT_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Current widget: "${widget.name}"
+    // Build messages for Claude
+    const userContent = `Current widget: "${widget.name}"
 
 Current component code:
 \`\`\`jsx
@@ -163,16 +159,14 @@ ${JSON.stringify(widget.data_schema, null, 2)}
 Previous conversation context:
 ${history.slice(0, -1).map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n")}
 
-User's request: ${input}`,
-      },
-    ];
+User's request: ${input}`;
 
-    // Stream response from OpenAI
-    const stream = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: openaiMessages,
-      stream: true,
-      temperature: 0.7,
+    // Stream response from Claude
+    const stream = await anthropic.messages.stream({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8192,
+      system: WIDGET_EDIT_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userContent }],
     });
 
     const encoder = new TextEncoder();
@@ -192,15 +186,17 @@ User's request: ${input}`,
 
         (async () => {
           try {
-            for await (const chunk of stream) {
-              const delta = chunk.choices[0]?.delta?.content ?? "";
-              if (!delta) continue;
-              fullContent += delta;
-              controller.enqueue(
-                encoder.encode(
-                  `event:token\ndata:${JSON.stringify(delta)}\n\n`
-                )
-              );
+            for await (const event of stream) {
+              if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+                const delta = event.delta.text;
+                if (!delta) continue;
+                fullContent += delta;
+                controller.enqueue(
+                  encoder.encode(
+                    `event:token\ndata:${JSON.stringify(delta)}\n\n`
+                  )
+                );
+              }
             }
 
             // Save assistant message
@@ -296,4 +292,3 @@ User's request: ${input}`,
     );
   }
 }
-
